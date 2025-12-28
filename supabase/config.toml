@@ -1,0 +1,4 @@
+project_id = "zkyyeyapwafslwpvmybs"
+
+[functions.babua-ai]
+verify_jwt = false

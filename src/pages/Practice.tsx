@@ -3,18 +3,28 @@ import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { DifficultyBadge } from "@/components/ui/DifficultyBadge";
 import { problems } from "@/data/mockData";
-import { Check, BookmarkPlus, Filter, Search } from "lucide-react";
+import { Check, BookmarkPlus, Filter, Search, Bot, Code } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Link } from "react-router-dom";
+import { useBabuaAI } from "@/hooks/useBabuaAI";
 
 export default function Practice() {
   const [filter, setFilter] = useState<"all" | "easy" | "medium" | "hard">("all");
   const [showSolved, setShowSolved] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [companyFilter, setCompanyFilter] = useState<string>("all");
+  const { sendMessage } = useBabuaAI();
+
+  // Get unique companies from all problems
+  const allCompanies = Array.from(
+    new Set(problems.flatMap((p) => p.companies || []))
+  ).sort();
 
   const filteredProblems = problems.filter((p) => {
     if (filter !== "all" && p.difficulty !== filter) return false;
     if (!showSolved && p.solved) return false;
     if (searchQuery && !p.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (companyFilter !== "all" && !p.companies?.includes(companyFilter)) return false;
     return true;
   });
 
@@ -64,7 +74,8 @@ export default function Practice() {
               />
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Difficulty Filter */}
               <div className="flex items-center bg-secondary rounded-lg p-1">
                 {(["all", "easy", "medium", "hard"] as const).map((level) => (
                   <button
@@ -80,6 +91,21 @@ export default function Practice() {
                   </button>
                 ))}
               </div>
+
+              {/* Company Filter */}
+              <select
+                value={companyFilter}
+                onChange={(e) => setCompanyFilter(e.target.value)}
+                className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+                aria-label="Filter by company"
+              >
+                <option value="all">All Companies</option>
+                {allCompanies.map((company) => (
+                  <option key={company} value={company}>
+                    {company}
+                  </option>
+                ))}
+              </select>
 
               <Button
                 variant={showSolved ? "default" : "outline"}
@@ -118,11 +144,31 @@ export default function Practice() {
                   </div>
 
                   <div className="col-span-5">
-                    <button className="text-left hover:text-primary transition-colors">
+                    <Link 
+                      to={`/problems/${problem.slug || problem.id}`}
+                      className="text-left hover:text-primary transition-colors block"
+                    >
                       <span className="font-medium">{problem.title}</span>
-                    </button>
-                    <div className="flex gap-2 mt-1">
-                      {problem.tags.map((tag) => (
+                    </Link>
+                    <div className="flex gap-2 mt-1 flex-wrap items-center">
+                      {problem.companies && problem.companies.length > 0 && (
+                        <div className="flex gap-1 items-center">
+                          {problem.companies.slice(0, 3).map((company) => (
+                            <span
+                              key={company}
+                              className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                            >
+                              {company}
+                            </span>
+                          ))}
+                          {problem.companies.length > 3 && (
+                            <span className="text-xs text-muted-foreground">
+                              +{problem.companies.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {problem.tags.slice(0, 2).map((tag) => (
                         <span
                           key={tag}
                           className="text-xs text-muted-foreground font-mono"
@@ -146,12 +192,20 @@ export default function Practice() {
                   </div>
 
                   <div className="col-span-2 flex justify-end gap-2">
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      <BookmarkPlus className="h-4 w-4" />
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-8 px-2"
+                      onClick={() => sendMessage(`Can you give me hints for solving ${problem.title}?`)}
+                    >
+                      <Bot className="h-4 w-4" />
                     </Button>
-                    <Button size="sm" className="font-mono">
-                      Solve
-                    </Button>
+                    <Link to={`/problems/${problem.slug || problem.id}`}>
+                      <Button size="sm" className="font-mono">
+                        <Code className="h-4 w-4 mr-1" />
+                        Solve
+                      </Button>
+                    </Link>
                   </div>
                 </div>
               ))}

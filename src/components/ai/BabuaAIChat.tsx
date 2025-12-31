@@ -3,6 +3,7 @@ import { MessageCircle, X, Send, Trash2, Bot, User, Loader2 } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { useBabuaAI } from "@/hooks/useBabuaAI";
 import { cn } from "@/lib/utils";
+import type { Problem, TestResult, UserProgress } from "@/types";
 
 const QUICK_PROMPTS = [
   "Explain this concept",
@@ -11,12 +12,25 @@ const QUICK_PROMPTS = [
   "What's the optimal solution?",
 ];
 
-export function BabuaAIChat() {
+interface BabuaAIChatProps {
+  problem?: Problem;
+  userCode?: string;
+  language?: string;
+  testResults?: TestResult;
+  userProgress?: UserProgress;
+}
+
+export function BabuaAIChat({ problem, userCode, language, testResults, userProgress }: BabuaAIChatProps = {}) {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const { messages, isLoading, error, sendMessage, clearMessages } = useBabuaAI();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Debug: Log when problem changes
+  useEffect(() => {
+    console.log("BabuaAIChat received problem:", problem ? problem.title : "undefined");
+  }, [problem]);
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -31,13 +45,25 @@ export function BabuaAIChat() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-    sendMessage(input.trim());
+    sendMessage(input.trim(), {
+      problem,
+      userCode,
+      language,
+      testResults,
+      userProgress,
+    });
     setInput("");
   };
 
   const handleQuickPrompt = (prompt: string) => {
     if (isLoading) return;
-    sendMessage(prompt);
+    sendMessage(prompt, {
+      problem,
+      userCode,
+      language,
+      testResults,
+      userProgress,
+    });
   };
 
   return (

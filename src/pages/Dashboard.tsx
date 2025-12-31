@@ -9,11 +9,111 @@ import {
   ArrowRight,
   Clock,
   CheckCircle2,
-  RotateCcw,
+  Bot,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useBabuaAI } from "@/hooks/useBabuaAI";
+import { enhancedUserProgress } from "@/data/mockData";
+import { useAuth } from "@/contexts/AuthContext";
+import { useEffect, useState } from "react";
+import { getUserProfile, getUserTrackProgress, getSolvedProblems, recalculateAllTrackProgress, getUserProblemProgress } from "@/lib/userDataService";
+import type { UserProfile, UserTrackProgress } from "@/lib/userDataService";
+import { DailyPlanner } from "@/components/ui/DailyPlanner";
+import { DailyChallengeCard } from "@/components/ui/DailyChallengeCard";
 
 export default function Dashboard() {
+  const { sendMessage } = useBabuaAI();
+  const { user } = useAuth();
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [trackProgress, setTrackProgress] = useState<UserTrackProgress[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [difficultyStats, setDifficultyStats] = useState({ easy: 0, medium: 0, hard: 0 });
+
+  const loadUserData = async () => {
+    if (!user) return;
+    
+    setLoading(true);
+    try {
+      // First, recalculate all track progress to fix any existing incorrect data
+      await recalculateAllTrackProgress(user.id, tracks);
+      
+      const [profile, progress, problems] = await Promise.all([
+        getUserProfile(user.id),
+        getUserTrackProgress(user.id),
+        getUserProblemProgress(user.id),
+      ]);
+
+      setUserProfile(profile);
+      setTrackProgress(progress);
+      
+      // Calculate difficulty breakdown
+      const solvedProblems = problems.filter(p => p.solved);
+      const stats = {
+        easy: solvedProblems.filter(p => p.difficulty === 'easy').length,
+        medium: solvedProblems.filter(p => p.difficulty === 'medium').length,
+        hard: solvedProblems.filter(p => p.difficulty === 'hard').length,
+      };
+      setDifficultyStats(stats);
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      loadUserData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // Refresh data when returning to tab (but not on interval)
+  useEffect(() => {
+    if (!user) return;
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Silently reload data in background without showing loading state
+        getUserProfile(user.id).then(profile => {
+          if (profile) setUserProfile(profile);
+        });
+        getUserTrackProgress(user.id).then(progress => {
+          setTrackProgress(progress);
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user]);
+
+  const handleAskAI = (context: string) => {
+    sendMessage(context, { userProgress: enhancedUserProgress });
+  };
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="py-12">
+          <div className="container mx-auto px-4 flex items-center justify-center min-h-[400px]">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground font-mono">Loading dashboard...</p>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  const currentStreak = userProfile?.current_streak || 0;
+  const longestStreak = userProfile?.longest_streak || 0;
+  const totalSolved = userProfile?.total_problems_solved || 0;
+
   return (
     <Layout>
       <div className="py-12">
@@ -34,11 +134,11 @@ export default function Dashboard() {
               </div>
               <div>
                 <div className="text-3xl font-mono font-bold text-primary">
-                  {userDashboard.streak}
+                  {currentStreak}
                 </div>
                 <div className="text-sm text-muted-foreground">Day Streak</div>
                 <div className="text-xs text-muted-foreground font-mono">
-                  Best: {userDashboard.longestStreak} days
+                  Best: {longestStreak} days
                 </div>
               </div>
             </div>
@@ -50,9 +150,9 @@ export default function Dashboard() {
               {/* Quick Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { icon: Target, label: "Total Solved", value: userDashboard.totalSolved, color: "text-primary" },
-                  { icon: Clock, label: "This Week", value: userDashboard.thisWeek, color: "text-emerald-400" },
-                  { icon: RotateCcw, label: "In Revision", value: userDashboard.revisionQueue, color: "text-amber-400" },
+                  { icon: Target, label: "Total Solved", value: totalSolved, color: "text-primary" },
+                  { icon: Clock, label: "Time Spent", value: `${userProfile?.total_time_spent || 0}m`, color: "text-emerald-400" },
+                  { icon: BookOpen, label: "Tracks", value: trackProgress.length, color: "text-amber-400" },
                   { icon: Calendar, label: "Sessions", value: userDashboard.upcomingSessions.length, color: "text-blue-400" },
                 ].map((stat, index) => (
                   <div key={index} className="surface-card p-4">
@@ -62,6 +162,9 @@ export default function Dashboard() {
                   </div>
                 ))}
               </div>
+
+              {/* Daily Challenge */}
+              <DailyChallengeCard />
 
               {/* Track Progress */}
               <div className="surface-card p-6">
@@ -79,29 +182,39 @@ export default function Dashboard() {
                 </div>
 
                 <div className="space-y-4">
-                  {tracks.slice(0, 4).map((track) => (
-                    <Link
-                      key={track.id}
-                      to={`/tracks/${track.slug}`}
-                      className="block p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xl">{track.icon}</span>
-                          <span className="font-medium">{track.shortTitle}</span>
+                  {tracks.slice(0, 4).map((track) => {
+                    const progress = trackProgress.find(p => p.track_slug === track.slug);
+                    const progressPercent = progress?.progress_percentage || 0;
+                    
+                    return (
+                      <Link
+                        key={track.id}
+                        to={`/tracks/${track.slug}`}
+                        className="block p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xl">{track.icon}</span>
+                            <span className="font-medium">{track.shortTitle}</span>
+                          </div>
+                          <span className="font-mono text-sm text-primary">
+                            {progressPercent}%
+                          </span>
                         </div>
-                        <span className="font-mono text-sm text-primary">
-                          {track.progress}%
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-background rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary rounded-full transition-all"
-                          style={{ width: `${track.progress}%` }}
-                        />
-                      </div>
-                    </Link>
-                  ))}
+                        <div className="h-1.5 bg-background rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-primary rounded-full transition-all"
+                            style={{ width: `${progressPercent}%` }}
+                          />
+                        </div>
+                        {progress && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {progress.problems_solved} / {progress.total_problems} problems
+                          </div>
+                        )}
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -134,91 +247,61 @@ export default function Dashboard() {
 
             {/* Sidebar */}
             <div className="space-y-6">
-              {/* Revision Queue */}
+              {/* Rank Display */}
               <div className="surface-card p-4">
-                <h3 className="font-mono text-sm font-semibold text-muted-foreground mb-4 flex items-center gap-2">
-                  <RotateCcw className="h-4 w-4 text-primary" />
-                  REVISION QUEUE
-                </h3>
-                <div className="space-y-2">
-                  {["3Sum", "Container With Most Water", "Group Anagrams", "LRU Cache", "Valid Parentheses"].slice(0, 5).map(
-                    (item, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between p-3 rounded bg-secondary/50"
-                      >
-                        <span className="text-sm">{item}</span>
-                        <Button variant="ghost" size="sm" className="h-7 font-mono text-xs">
-                          Review
-                        </Button>
-                      </div>
-                    )
-                  )}
-                </div>
-                <Link to="/practice">
-                  <Button variant="outline" className="w-full mt-4 font-mono text-sm">
-                    View All ({userDashboard.revisionQueue})
-                  </Button>
-                </Link>
-              </div>
-
-              {/* Upcoming Sessions */}
-              <div className="surface-card p-4">
-                <h3 className="font-mono text-sm font-semibold text-muted-foreground mb-4 flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-primary" />
-                  UPCOMING SESSIONS
-                </h3>
-                {userDashboard.upcomingSessions.length > 0 ? (
-                  <div className="space-y-3">
-                    {userDashboard.upcomingSessions.map((session, index) => (
-                      <div
-                        key={index}
-                        className="p-4 rounded bg-primary/10 border border-primary/20"
-                      >
-                        <div className="font-medium text-sm mb-1">{session.type}</div>
-                        <div className="text-xs text-muted-foreground font-mono">
-                          {session.date} at {session.time}
-                        </div>
-                      </div>
-                    ))}
+                <div className="flex items-center justify-around">
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-full bg-amber-400/20 border-2 border-amber-400 flex items-center justify-center mb-2 mx-auto">
+                      <span className="text-2xl">👤</span>
+                    </div>
+                    <div className="text-xs font-mono font-bold">Rank 1</div>
                   </div>
-                ) : (
-                  <div className="text-center py-6 text-muted-foreground text-sm">
-                    No upcoming sessions
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-full bg-gray-400/20 border-2 border-gray-400 flex items-center justify-center mb-2 mx-auto">
+                      <span className="text-2xl">👤</span>
+                    </div>
+                    <div className="text-xs font-mono font-bold">Rank 2</div>
                   </div>
-                )}
-                <Link to="/support">
-                  <Button variant="outline" className="w-full mt-4 font-mono text-sm">
-                    Book a Session
-                  </Button>
-                </Link>
-              </div>
-
-              {/* Daily Goal */}
-              <div className="surface-card p-4">
-                <h3 className="font-mono text-sm font-semibold text-muted-foreground mb-4">
-                  TODAY'S GOAL
-                </h3>
-                <div className="text-center py-4">
-                  <div className="text-4xl font-mono font-bold text-primary mb-2">
-                    3/5
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-full bg-orange-400/20 border-2 border-orange-400 flex items-center justify-center mb-2 mx-auto">
+                      <span className="text-2xl">👤</span>
+                    </div>
+                    <div className="text-xs font-mono font-bold">Rank 3</div>
                   </div>
-                  <div className="text-sm text-muted-foreground">problems solved</div>
-                  <div className="h-2 bg-secondary rounded-full overflow-hidden mt-4">
-                    <div className="h-full bg-primary rounded-full" style={{ width: "60%" }} />
+                  <div className="text-center">
+                    <div className="w-16 h-16 rounded-full bg-secondary border-2 border-border flex items-center justify-center mb-2 mx-auto">
+                      <span className="text-sm">****</span>
+                    </div>
                   </div>
                 </div>
-                <Link to="/practice">
-                  <Button className="w-full font-mono mt-4">
-                    Continue Grinding
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
+              </div>
+
+              {/* Weakness Analysis */}
+              <div className="surface-card p-4 bg-amber-500/10 border-amber-500/20">
+                <h3 className="font-mono text-sm font-semibold mb-2 flex items-center gap-2">
+                  <Bot className="h-4 w-4 text-amber-400" />
+                  AI Weakness Analysis
+                </h3>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Get personalized insights on your weak areas with AI-powered recommendations
+                </p>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="w-full"
+                  onClick={() => handleAskAI("Can you analyze my weaknesses and create a study plan?")}
+                >
+                  <Bot className="h-4 w-4 mr-2" />
+                  Get AI Analysis
+                </Button>
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Daily Planner */}
+      <DailyPlanner />
     </Layout>
   );
 }

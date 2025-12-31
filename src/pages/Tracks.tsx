@@ -2,8 +2,38 @@ import { Layout } from "@/components/layout/Layout";
 import { TrackCard } from "@/components/ui/TrackCard";
 import { tracks } from "@/data/mockData";
 import { BookOpen } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useEffect, useState } from "react";
+import { getUserTrackProgress } from "@/lib/userDataService";
+import type { UserTrackProgress } from "@/lib/userDataService";
 
 export default function Tracks() {
+  const { user } = useAuth();
+  const [trackProgress, setTrackProgress] = useState<Map<string, UserTrackProgress>>(new Map());
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (user) {
+      loadTrackProgress();
+    } else {
+      setLoading(false);
+    }
+  }, [user]);
+
+  const loadTrackProgress = async () => {
+    if (!user) return;
+    
+    try {
+      const progress = await getUserTrackProgress(user.id);
+      const progressMap = new Map(progress.map(p => [p.track_slug, p]));
+      setTrackProgress(progressMap);
+    } catch (error) {
+      console.error('Error loading track progress:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Layout>
       <div className="py-12">
@@ -21,22 +51,34 @@ export default function Tracks() {
           </div>
 
           {/* Tracks Grid */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {tracks.map((track) => (
-              <TrackCard
-                key={track.id}
-                slug={track.slug}
-                title={track.title}
-                shortTitle={track.shortTitle}
-                description={track.description}
-                topics={track.topics}
-                problems={track.problems}
-                difficulty={track.difficulty as "easy" | "medium" | "hard" | "mixed"}
-                progress={track.progress}
-                icon={track.icon}
-              />
-            ))}
-          </div>
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground font-mono">Loading tracks...</p>
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {tracks.map((track) => {
+                const progress = trackProgress.get(track.slug);
+                const progressPercent = progress?.progress_percentage || 0;
+                
+                return (
+                  <TrackCard
+                    key={track.id}
+                    slug={track.slug}
+                    title={track.title}
+                    shortTitle={track.shortTitle}
+                    description={track.description}
+                    topics={track.topics}
+                    problems={track.problems}
+                    difficulty={track.difficulty as "easy" | "medium" | "hard" | "mixed"}
+                    progress={progressPercent}
+                    icon={track.icon}
+                  />
+                );
+              })}
+            </div>
+          )}
 
           {/* Bottom Info */}
           <div className="mt-16 max-w-2xl mx-auto text-center">

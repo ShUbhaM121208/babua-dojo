@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { TrackCard } from "@/components/ui/TrackCard";
 import { tracks, communityStats, supportServices } from "@/data/mockData";
+import { useAuth } from "@/contexts/AuthContext";
 import { 
   Terminal, 
   Users, 
@@ -19,6 +20,8 @@ import gsap from "gsap";
 export default function Index() {
   const heroRef = useRef<HTMLDivElement>(null);
   const statsRef = useRef<HTMLDivElement>(null);
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -47,6 +50,14 @@ export default function Index() {
     return () => ctx.revert();
   }, []);
 
+  const handleStartLearning = () => {
+    if (user) {
+      navigate('/tracks');
+    } else {
+      navigate('/auth');
+    }
+  };
+
   return (
     <Layout>
       {/* Hero Section */}
@@ -73,12 +84,14 @@ export default function Index() {
             </p>
 
             <div className="hero-cta flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link to="/tracks">
-                <Button size="lg" className="font-mono text-base px-8">
-                  Start Learning
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Button>
-              </Link>
+              <Button 
+                size="lg" 
+                className="font-mono text-base px-8"
+                onClick={handleStartLearning}
+              >
+                Start Learning
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
               <Link to="/community">
                 <Button variant="outline" size="lg" className="font-mono text-base px-8">
                   Join Community

@@ -1,29 +1,34 @@
 import { useState, useCallback } from "react";
 import { useLocation } from "react-router-dom";
-
-type Message = {
-  role: "user" | "assistant";
-  content: string;
-};
-
-type AIContext = {
-  currentRoute?: string;
-  currentTrack?: string;
-  currentTopic?: string;
-  currentProblem?: string;
-  currentCode?: string;
-  userProgress?: string;
-};
+import type { AIContext, Message, Problem, UserProgress, TestResult } from "@/types";
+import type { TutorHintLevel, SessionType, TutorHint } from "@/types/tutor";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/babua-ai`;
+
+interface SendMessageOptions {
+  problem?: Problem;
+  userCode?: string;
+  language?: string;
+  testResults?: TestResult;
+  userProgress?: UserProgress;
+  tutorMode?: boolean;
+  sessionType?: SessionType;
+  hintLevel?: TutorHintLevel;
+  previousHints?: TutorHint[];
+}
 
 export function useBabuaAI() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastRequestTime, setLastRequestTime] = useState<number>(0);
+  const [tutorModeEnabled, setTutorModeEnabled] = useState(false);
+  const [currentSessionType, setCurrentSessionType] = useState<SessionType>('hint_based');
   const location = useLocation();
 
-  const getContext = useCallback((): AIContext => {
+  const COOLDOWN_MS = 2000; // 2 seconds between requests
+
+  const buildContext = useCallback((options?: SendMessageOptions): AIContext => {
     const path = location.pathname;
     const context: AIContext = {
       currentRoute: path,
@@ -40,13 +45,70 @@ export function useBabuaAI() {
       context.currentTrack = "Practice Problems";
     }
 
+    if (path.startsWith("/problem/")) {
+      const problemId = path.split("/problem/")[1];
+      context.currentTopic = `Problem ${problemId}`;
+    }
+
+    // Add problem details if provided
+    if (options?.problem) {
+      console.log("Building context with problem:", options.problem.title);
+      context.currentProblem = {
+        id: options.problem.id,
+        title: options.problem.title,
+        difficulty: options.problem.difficulty,
+        description: options.problem.description,
+        tags: options.problem.tags,
+      };
+    } else {
+      console.log("No problem provided in options");
+    }
+
+    // Add code context
+    if (options?.userCode) {
+      context.userCode = options.userCode;
+      context.language = options.language || "javascript";
+    }
+
+    // Add test results
+    if (options?.testResults) {
+      context.testResults = options.testResults;
+    }
+
+    // Add user progress
+    if (options?.userProgress) {
+      context.userProgress = options.userProgress;
+    }
+
+    // Add tutor mode context
+    if (options?.tutorMode) {
+      context.tutorMode = {
+        enabled: true,
+        sessionType: options.sessionType || currentSessionType,
+        hintLevel: options.hintLevel,
+        previousHints: options.previousHints || []
+      };
+    }
+
+    console.log("Final context being sent:", JSON.stringify(context, null, 2));
     return context;
-  }, [location.pathname]);
+  }, [location.pathname, currentSessionType]);
 
   const sendMessage = useCallback(async (
     input: string,
-    additionalContext?: Partial<AIContext>
+    options?: SendMessageOptions
   ) => {
+    // Check cooldown
+    const now = Date.now();
+    const timeSinceLastRequest = now - lastRequestTime;
+    if (timeSinceLastRequest < COOLDOWN_MS) {
+      const waitTime = Math.ceil((COOLDOWN_MS - timeSinceLastRequest) / 1000);
+      setError(`Please wait ${waitTime} second${waitTime > 1 ? 's' : ''} before sending another message.`);
+      return;
+    }
+    
+    setLastRequestTime(now);
+    
     const userMsg: Message = { role: "user", content: input };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
@@ -68,7 +130,7 @@ export function useBabuaAI() {
     };
 
     try {
-      const context = { ...getContext(), ...additionalContext };
+      const context = buildContext(options);
       
       const resp = await fetch(CHAT_URL, {
         method: "POST",
@@ -84,6 +146,12 @@ export function useBabuaAI() {
 
       if (!resp.ok) {
         const errorData = await resp.json().catch(() => ({}));
+        
+        // Handle rate limiting with user-friendly message
+        if (resp.status === 429) {
+          throw new Error("AI is processing too many requests. Please wait 30 seconds and try again.");
+        }
+        
         throw new Error(errorData.error || `Request failed: ${resp.status}`);
       }
 
@@ -145,12 +213,70 @@ export function useBabuaAI() {
     } finally {
       setIsLoading(false);
     }
-  }, [messages, getContext]);
+  }, [messages, buildContext, lastRequestTime]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
     setError(null);
   }, []);
+
+  const enableTutorMode = useCallback((sessionType: SessionType = 'hint_based') => {
+    setTutorModeEnabled(true);
+    setCurrentSessionType(sessionType);
+  }, []);
+
+  const disableTutorMode = useCallback(() => {
+    setTutorModeEnabled(false);
+  }, []);
+
+  const requestTutorHint = useCallback(async (
+    problemId: string,
+    hintLevel: TutorHintLevel,
+    userCode?: string,
+    previousHints?: TutorHint[]
+  ): Promise<TutorHint | null> => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const context = buildContext({
+        tutorMode: true,
+        sessionType: currentSessionType,
+        hintLevel,
+        userCode,
+        previousHints
+      });
+      
+      const resp = await fetch(CHAT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({
+          type: 'tutor_hint',
+          problemId,
+          hintLevel,
+          userCode,
+          previousHints,
+          context,
+        }),
+      });
+
+      if (!resp.ok) {
+        throw new Error(`Request failed: ${resp.status}`);
+      }
+
+      const hint: TutorHint = await resp.json();
+      return hint;
+    } catch (e) {
+      console.error("Tutor hint error:", e);
+      setError(e instanceof Error ? e.message : "Failed to get hint");
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [buildContext, currentSessionType]);
 
   return {
     messages,
@@ -158,5 +284,10 @@ export function useBabuaAI() {
     error,
     sendMessage,
     clearMessages,
+    tutorModeEnabled,
+    currentSessionType,
+    enableTutorMode,
+    disableTutorMode,
+    requestTutorHint,
   };
 }

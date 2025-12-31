@@ -281,42 +281,6 @@ babua-dojo/
 
 ---
 
-## 🗺️ Roadmap
-
-### ✅ Phase 1: Foundation (Weeks 1-3) - COMPLETE
-- ✅ Code execution engine (Judge0)
-- ✅ User authentication & profiles
-- ✅ Problem database with test cases
-- ✅ Battle Royale WebSocket server
-
-### ✅ Phase 2: Engagement (Weeks 4-7) - COMPLETE
-- ✅ Daily challenges
-- ✅ Rank & progression system
-- ✅ Tournaments system
-- ✅ Discussion forums
-
-### ✅ Phase 3: Advanced (Weeks 8-12) - COMPLETE
-- ✅ AI Tutor Mode
-- ✅ Mock Interviews with video
-- ✅ Study Plans & recommendations
-- ✅ Weakness analysis with spaced repetition
-
-### 🚧 Phase 4: Scaling (Weeks 13-16) - IN PROGRESS
-- [ ] Mobile apps (iOS/Android)
-- [ ] VS Code extension
-- [ ] Premium tier with Stripe
-- [ ] Advanced analytics dashboard
-
-### 📅 Phase 5: Expansion (Weeks 17-20)
-- [ ] Company-sponsored tournaments
-- [ ] Certificate programs
-- [ ] Mentorship marketplace
-- [ ] API for third-party integrations
-
-See [COMPLETE_35_FEATURES_ROADMAP.md](COMPLETE_35_FEATURES_ROADMAP.md) for detailed breakdown.
-
----
-
 ## 🤝 Contributing
 
 We welcome contributions! Please follow these steps:

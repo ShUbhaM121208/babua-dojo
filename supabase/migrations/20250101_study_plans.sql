@@ -194,6 +194,26 @@ ALTER TABLE study_plan_milestones ENABLE ROW LEVEL SECURITY;
 ALTER TABLE study_recommendations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE study_buddies ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies if they exist (makes migration idempotent)
+DROP POLICY IF EXISTS "Users can view their own plans" ON study_plans;
+DROP POLICY IF EXISTS "Users can create their own plans" ON study_plans;
+DROP POLICY IF EXISTS "Users can update their own plans" ON study_plans;
+DROP POLICY IF EXISTS "Users can delete their own plans" ON study_plans;
+
+DROP POLICY IF EXISTS "Users can view items from accessible plans" ON study_plan_items;
+DROP POLICY IF EXISTS "Users can manage items in their own plans" ON study_plan_items;
+
+DROP POLICY IF EXISTS "Users can view their own progress" ON user_study_progress;
+DROP POLICY IF EXISTS "Users can insert their own progress" ON user_study_progress;
+DROP POLICY IF EXISTS "Users can update their own progress" ON user_study_progress;
+
+DROP POLICY IF EXISTS "Users can view their own recommendations" ON study_recommendations;
+DROP POLICY IF EXISTS "Users can update their own recommendations" ON study_recommendations;
+
+DROP POLICY IF EXISTS "Users can view their buddy relationships" ON study_buddies;
+DROP POLICY IF EXISTS "Users can create buddy requests" ON study_buddies;
+DROP POLICY IF EXISTS "Users can update buddy status" ON study_buddies;
+
 -- Study Plans Policies
 CREATE POLICY "Users can view their own plans"
   ON study_plans FOR SELECT

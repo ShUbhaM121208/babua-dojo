@@ -7,7 +7,8 @@ import { Card } from "@/components/ui/card";
 import { Plus, BookOpen, Sparkles, Target } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { 
-  getActiveStudyPlans, 
+  getActiveStudyPlans,
+  getUserStudyPlans,
   getTemplateStudyPlans,
   getStudyRecommendations,
   type StudyPlan,
@@ -40,7 +41,7 @@ export default function StudyPlans() {
     setLoading(true);
     try {
       const [plansData, templatesData, recommendationsData] = await Promise.all([
-        getActiveStudyPlans(user.id),
+        getUserStudyPlans(user.id), // Changed from getActiveStudyPlans to get ALL plans including drafts
         getTemplateStudyPlans(),
         getStudyRecommendations(user.id),
       ]);

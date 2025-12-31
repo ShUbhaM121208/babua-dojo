@@ -14,6 +14,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { joinMatchmakingQueue, leaveMatchmakingQueue, getUserBattleRating, createBattleRoom, joinBattleRoom } from '@/lib/battleService';
 import { supabase } from '@/integrations/supabase/client';
+import { RankBadge } from '@/components/profile/RankBadge';
+import { getUserRank } from '@/lib/rankService';
 
 export default function BattleMatchmaking() {
   const navigate = useNavigate();
@@ -28,6 +30,7 @@ export default function BattleMatchmaking() {
   const [roomCode, setRoomCode] = useState('');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [copiedRoomId, setCopiedRoomId] = useState<string | null>(null);
+  const [userRank, setUserRank] = useState<any>(null);
 
   // Mock data for live battles
   const liveBattles = [
@@ -85,6 +88,7 @@ export default function BattleMatchmaking() {
   useEffect(() => {
     if (user) {
       getUserBattleRating(user.id).then(data => setRating(data.current_rating));
+      getUserRank(user.id).then(setUserRank);
     }
   }, [user]);
 
@@ -381,11 +385,21 @@ export default function BattleMatchmaking() {
                           >
                             #{player.rank}
                           </div>
-                          <div>
-                            <p className="font-semibold">{player.name}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {player.wins} wins • {player.streak} streak
-                            </p>
+                          <div className="flex items-center gap-3">
+                            <div>
+                              <p className="font-semibold">{player.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {player.wins} wins • {player.streak} streak
+                              </p>
+                            </div>
+                            {player.isCurrentUser && userRank && (
+                              <RankBadge
+                                rank={userRank.current_rank}
+                                size="small"
+                                showTooltip={false}
+                                animated={false}
+                              />
+                            )}
                           </div>
                         </div>
                         <div className="text-right">

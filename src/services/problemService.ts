@@ -86,36 +86,46 @@ class ProblemService {
    * Fetch a single problem by slug
    */
   async getProblemBySlug(slug: string): Promise<Problem | null> {
-    const { data, error } = await supabase
-      .from('problems')
-      .select('*')
-      .eq('slug', slug)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('problems')
+        .select('*')
+        .eq('slug', slug)
+        .single();
 
-    if (error) {
-      console.error('Error fetching problem:', error);
+      if (error) {
+        console.warn('Error fetching problem from database:', error.message);
+        return null;
+      }
+
+      return data ? this.normalizeProblem(data) : null;
+    } catch (err) {
+      console.warn('Could not fetch problem from database');
       return null;
     }
-
-    return data ? this.normalizeProblem(data) : null;
   }
 
   /**
    * Fetch a single problem by ID
    */
   async getProblemById(id: string): Promise<Problem | null> {
-    const { data, error } = await supabase
-      .from('problems')
-      .select('*')
-      .eq('id', id)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('problems')
+        .select('*')
+        .eq('id', id)
+        .single();
 
-    if (error) {
-      console.error('Error fetching problem:', error);
+      if (error) {
+        console.warn('Error fetching problem from database:', error.message);
+        return null;
+      }
+
+      return data ? this.normalizeProblem(data) : null;
+    } catch (err) {
+      console.warn('Could not fetch problem from database');
       return null;
     }
-
-    return data ? this.normalizeProblem(data) : null;
   }
 
   /**

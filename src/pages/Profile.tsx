@@ -9,11 +9,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Instagram, Linkedin, Twitter, Github, Edit2, Share2, ChevronDown, Settings } from "lucide-react";
+import { Instagram, Linkedin, Twitter, Github, Edit2, Share2, ChevronDown, Settings, Trophy } from "lucide-react";
 import { tracks } from "@/data/mockData";
 import { useToast } from "@/hooks/use-toast";
 import { ReferralDashboard } from "@/components/ReferralDashboard";
 import { ProfileSettingsModal } from "@/components/profile/ProfileSettingsModal";
+import { RankBadge, RankProgressCard, TitleBadge } from "@/components/profile/RankBadge";
+import { RankUpNotification } from "@/components/profile/RankUpNotification";
+import { useRankSystem } from "@/hooks/useRankSystem";
+import { calculateRankProgress } from "@/lib/rankService";
+import { cn } from "@/lib/utils";
 
 interface TrackProgress {
   trackId?: string;
@@ -49,6 +54,18 @@ interface HeatmapDay {
 export default function Profile() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const {
+    userRank,
+    userTitles,
+    equippedTitle,
+    rankHistory,
+    loading: rankLoading,
+    handleEquipTitle,
+    showRankUpModal,
+    rankUpData,
+    dismissRankUp,
+  } = useRankSystem();
+  
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [trackProgress, setTrackProgress] = useState<TrackProgress[]>([]);
   const [sheetProgress, setSheetProgress] = useState<SheetProgress[]>([]);
@@ -438,6 +455,33 @@ export default function Profile() {
                     {userProfile?.full_name || 'User'}
                   </h2>
                   <p className="text-sm text-muted-foreground mt-1">{userProfile?.email}</p>
+                  
+                  {/* Rank Badge */}
+                  {userRank && (
+                    <div className="mt-3 flex justify-center">
+                      <RankBadge
+                        rank={userRank.current_rank}
+                        xp={userRank.rank_xp}
+                        xpToNext={userRank.xp_to_next_rank}
+                        progressPercentage={userRank.progress_percentage}
+                        size="medium"
+                        showTooltip
+                      />
+                    </div>
+                  )}
+                  
+                  {/* Equipped Title */}
+                  {equippedTitle && (
+                    <div className="mt-2 flex justify-center">
+                      <TitleBadge
+                        title={equippedTitle.title || ''}
+                        icon={equippedTitle.icon}
+                        color={equippedTitle.color}
+                        rarity={equippedTitle.rarity as any}
+                        size="small"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="w-full space-y-2">
@@ -619,8 +663,55 @@ export default function Profile() {
 
           {/* Main Content */}
           <div className="lg:col-span-9 space-y-6">
+            {/* Rank Progress Card */}
+            {userRank && (
+              <RankProgressCard
+                currentRank={userRank.current_rank}
+                xp={userRank.rank_xp}
+                xpToNext={userRank.xp_to_next_rank}
+                progressPercentage={userRank.progress_percentage}
+                nextRank={userRank.next_rank}
+              />
+            )}
+
+            {/* Titles Showcase */}
+            {userTitles.length > 0 && (
+              <Card className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <Trophy className="w-5 h-5 text-yellow-500" />
+                    Special Titles ({userTitles.length})
+                  </h3>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {userTitles.map((userTitle) => (
+                    <button
+                      key={userTitle.id}
+                      onClick={() => handleEquipTitle(userTitle.title_id)}
+                      className={cn(
+                        "transition-all hover:scale-105",
+                        userTitle.is_equipped && "ring-2 ring-offset-2 ring-primary"
+                      )}
+                    >
+                      <TitleBadge
+                        title={userTitle.title || ''}
+                        icon={userTitle.icon}
+                        color={userTitle.color}
+                        rarity={userTitle.rarity as any}
+                        size="medium"
+                      />
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-4">
+                  Click a title to equip it on your profile
+                </p>
+              </Card>
+            )}
+
             {/* DSA Progress Tabs */}
-            <Card className="p-6">
+            <Card className="p-6"
+>
               <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'dsa' | 'babua' | 'leetcode' | 'referrals')}>
                 <TabsList className="mb-6">
                   <TabsTrigger value="dsa">DSA Progress</TabsTrigger>
@@ -964,6 +1055,16 @@ export default function Profile() {
           isOpen={showSettingsModal}
           onClose={() => setShowSettingsModal(false)}
           onUpdate={() => loadUserData()}
+        />
+      )}
+
+      {/* Rank Up Notification */}
+      {showRankUpModal && rankUpData && (
+        <RankUpNotification
+          oldRank={rankUpData.oldRank}
+          newRank={rankUpData.newRank}
+          newXP={rankUpData.newXP}
+          onClose={dismissRankUp}
         />
       )}
     </Layout>

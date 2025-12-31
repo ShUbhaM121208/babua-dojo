@@ -1,35 +1,72 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { DifficultyBadge } from "@/components/ui/DifficultyBadge";
-import { problems } from "@/data/mockData";
-import { Check, BookmarkPlus, Filter, Search, Bot, Code } from "lucide-react";
+import { detailedProblems } from "@/data/mockData";
+import { Check, BookmarkPlus, Filter, Search, Bot, Code, ChevronLeft, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Link } from "react-router-dom";
 import { useBabuaAI } from "@/hooks/useBabuaAI";
 
 export default function Practice() {
   const [filter, setFilter] = useState<"all" | "easy" | "medium" | "hard">("all");
+  const [topicFilter, setTopicFilter] = useState<string>("all");
   const [showSolved, setShowSolved] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [companyFilter, setCompanyFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const problemsPerPage = 20;
   const { sendMessage } = useBabuaAI();
 
-  // Get unique companies from all problems
-  const allCompanies = Array.from(
-    new Set(problems.flatMap((p) => p.companies || []))
-  ).sort();
+  // Convert detailedProblems object to array and filter only DSA track
+  const problemsArray = useMemo(() => {
+    return Object.values(detailedProblems).filter((p) => p.track === "DSA");
+  }, []);
 
-  const filteredProblems = problems.filter((p) => {
-    if (filter !== "all" && p.difficulty !== filter) return false;
-    if (!showSolved && p.solved) return false;
-    if (searchQuery && !p.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    if (companyFilter !== "all" && !p.companies?.includes(companyFilter)) return false;
-    return true;
-  });
+  // Get unique topics from DSA problems
+  const allTopics = useMemo(() => {
+    const topics = new Set<string>();
+    problemsArray.forEach((p) => {
+      p.tags.forEach(tag => topics.add(tag));
+    });
+    return Array.from(topics).sort();
+  }, [problemsArray]);
 
-  const solvedCount = problems.filter((p) => p.solved).length;
-  const progressPercent = Math.round((solvedCount / problems.length) * 100);
+  // Get unique companies from DSA problems
+  const allCompanies = useMemo(() => {
+    const companies = new Set<string>();
+    problemsArray.forEach((p) => {
+      if (p.companies) {
+        p.companies.forEach(c => companies.add(c));
+      }
+    });
+    return Array.from(companies).sort();
+  }, [problemsArray]);
+
+  const filteredProblems = useMemo(() => {
+    return problemsArray.filter((p) => {
+      if (filter !== "all" && p.difficulty !== filter) return false;
+      if (!showSolved && p.solved) return false;
+      if (searchQuery && !p.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+      if (companyFilter !== "all" && !p.companies?.includes(companyFilter)) return false;
+      if (topicFilter !== "all" && !p.tags.includes(topicFilter)) return false;
+      return true;
+    });
+  }, [problemsArray, filter, showSolved, searchQuery, companyFilter, topicFilter]);
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredProblems.length / problemsPerPage);
+  const startIndex = (currentPage - 1) * problemsPerPage;
+  const endIndex = startIndex + problemsPerPage;
+  const paginatedProblems = filteredProblems.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filters change
+  useMemo(() => {
+    setCurrentPage(1);
+  }, [filter, topicFilter, searchQuery, companyFilter, showSolved]);
+
+  const solvedCount = problemsArray.filter((p) => p.solved).length;
+  const progressPercent = Math.round((solvedCount / problemsArray.length) * 100);
 
   return (
     <Layout>
@@ -57,7 +94,7 @@ export default function Practice() {
                 />
               </div>
               <div className="text-xs text-muted-foreground mt-2 font-mono">
-                {solvedCount}/{problems.length} solved
+                {solvedCount}/{problemsArray.length} solved
               </div>
             </div>
           </div>
@@ -92,6 +129,21 @@ export default function Practice() {
                 ))}
               </div>
 
+              {/* Topic Filter */}
+              <select
+                value={topicFilter}
+                onChange={(e) => setTopicFilter(e.target.value)}
+                className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+                aria-label="Filter by topic"
+              >
+                <option value="all">All Topics</option>
+                {allTopics.map((topic) => (
+                  <option key={topic} value={topic}>
+                    {topic}
+                  </option>
+                ))}
+              </select>
+
               {/* Company Filter */}
               <select
                 value={companyFilter}
@@ -122,19 +174,25 @@ export default function Practice() {
           {/* Problem List */}
           <div className="surface-card overflow-hidden">
             <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-border text-sm font-mono text-muted-foreground bg-secondary/50">
+              <div className="col-span-1">#</div>
               <div className="col-span-1">Status</div>
               <div className="col-span-5">Problem</div>
               <div className="col-span-2">Difficulty</div>
-              <div className="col-span-2">Track</div>
-              <div className="col-span-2 text-right">Actions</div>
+              <div className="col-span-3 text-right">Actions</div>
             </div>
 
             <div className="divide-y divide-border">
-              {filteredProblems.map((problem) => (
+              {paginatedProblems.map((problem, index) => (
                 <div
                   key={problem.id}
                   className="grid grid-cols-12 gap-4 px-4 py-4 items-center hover:bg-secondary/30 transition-colors"
                 >
+                  <div className="col-span-1">
+                    <span className="text-sm text-muted-foreground font-mono">
+                      {startIndex + index + 1}
+                    </span>
+                  </div>
+
                   <div className="col-span-1">
                     {problem.solved ? (
                       <Check className="h-5 w-5 text-primary" />
@@ -185,13 +243,7 @@ export default function Practice() {
                     />
                   </div>
 
-                  <div className="col-span-2">
-                    <span className="text-sm text-muted-foreground font-mono">
-                      {problem.track}
-                    </span>
-                  </div>
-
-                  <div className="col-span-2 flex justify-end gap-2">
+                  <div className="col-span-3 flex justify-end gap-2">
                     <Button 
                       variant="ghost" 
                       size="sm" 
@@ -213,18 +265,78 @@ export default function Practice() {
 
             {filteredProblems.length === 0 && (
               <div className="py-12 text-center text-muted-foreground">
-                No problems match your filters
+                No DSA problems match your filters
               </div>
             )}
           </div>
 
+          {/* Pagination */}
+          {filteredProblems.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 p-4 surface-card">
+              <div className="text-sm text-muted-foreground font-mono">
+                Showing {startIndex + 1}-{Math.min(endIndex, filteredProblems.length)} of {filteredProblems.length} problems
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="font-mono"
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="w-10 font-mono"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="font-mono"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Quick Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
             {[
-              { label: "Easy", count: problems.filter((p) => p.difficulty === "easy").length, color: "text-emerald-400" },
-              { label: "Medium", count: problems.filter((p) => p.difficulty === "medium").length, color: "text-amber-400" },
-              { label: "Hard", count: problems.filter((p) => p.difficulty === "hard").length, color: "text-red-400" },
-              { label: "In Revision", count: 8, color: "text-primary" },
+              { label: "Easy", count: problemsArray.filter((p) => p.difficulty === "easy").length, color: "text-emerald-400" },
+              { label: "Medium", count: problemsArray.filter((p) => p.difficulty === "medium").length, color: "text-amber-400" },
+              { label: "Hard", count: problemsArray.filter((p) => p.difficulty === "hard").length, color: "text-red-400" },
+              { label: "Total", count: problemsArray.length, color: "text-primary" },
             ].map((stat) => (
               <div key={stat.label} className="surface-card p-4 text-center">
                 <div className={`text-2xl font-mono font-bold ${stat.color}`}>

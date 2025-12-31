@@ -324,17 +324,54 @@ export async function getPlanItems(planId: string): Promise<StudyPlanItem[]> {
 
 export async function getTodayTasks(
   userId: string,
-  planId: string
+  planId?: string
 ): Promise<StudyPlanItem[]> {
   try {
-    const { data, error } = await supabase.rpc('get_daily_tasks', {
-      p_user_id: userId,
-      p_plan_id: planId,
-      p_date: new Date().toISOString().split('T')[0],
-    });
+    // If planId is provided, get tasks for that specific plan
+    if (planId) {
+      const { data, error } = await supabase.rpc('get_daily_tasks', {
+        p_user_id: userId,
+        p_plan_id: planId,
+        p_date: new Date().toISOString().split('T')[0],
+      });
 
-    if (error) throw error;
-    return data as StudyPlanItem[];
+      if (error) throw error;
+      return data as StudyPlanItem[];
+    }
+
+    // Otherwise, get tasks from all active plans
+    const activePlans = await getActiveStudyPlans(userId);
+    
+    if (activePlans.length === 0) {
+      return [];
+    }
+
+    // Get the current day number for each active plan
+    const allTasks: StudyPlanItem[] = [];
+    
+    for (const plan of activePlans) {
+      if (!plan.start_date) continue;
+      
+      const startDate = new Date(plan.start_date);
+      const today = new Date();
+      const daysDiff = Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+      const currentDay = daysDiff + 1; // Day 1 is the start date
+      
+      if (currentDay > 0 && currentDay <= plan.estimated_days) {
+        const { data: items } = await supabase
+          .from('study_plan_items')
+          .select('*')
+          .eq('plan_id', plan.id)
+          .eq('day_number', currentDay)
+          .order('order_in_day');
+        
+        if (items) {
+          allTasks.push(...items);
+        }
+      }
+    }
+    
+    return allTasks;
   } catch (error) {
     console.error('Error fetching today tasks:', error);
     return [];
@@ -413,10 +450,27 @@ export async function deletePlanItem(itemId: string): Promise<boolean> {
 export async function getDailyProgress(
   userId: string,
   planId: string,
-  date?: string
-): Promise<DailyProgress | null> {
+  startDate?: string,
+  endDate?: string
+): Promise<DailyProgress | DailyProgress[]> {
   try {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    // If date range provided, return array
+    if (startDate && endDate) {
+      const { data, error } = await supabase
+        .from('user_study_progress')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('plan_id', planId)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: true });
+
+      if (error) throw error;
+      return (data || []) as DailyProgress[];
+    }
+    
+    // Single date query
+    const targetDate = startDate || new Date().toISOString().split('T')[0];
     
     const { data, error } = await supabase
       .from('user_study_progress')
@@ -435,7 +489,7 @@ export async function getDailyProgress(
     return data as DailyProgress;
   } catch (error) {
     console.error('Error fetching daily progress:', error);
-    return null;
+    return startDate && endDate ? [] : null;
   }
 }
 
@@ -573,5 +627,177 @@ export async function generateAIPlan(
   } catch (error: any) {
     console.error('Error generating AI plan:', error);
     return { id: null, error: error.message };
+  }
+}
+
+// ============================================
+// ADDITIONAL HELPER FUNCTIONS
+// ============================================
+
+export async function getStudyPlanItems(planId: string): Promise<StudyPlanItem[]> {
+  return getPlanItems(planId);
+}
+
+export async function completeStudyItem(itemId: string, completed: boolean): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('study_plan_items')
+      .update({
+        is_completed: completed,
+        completed_at: completed ? new Date().toISOString() : null,
+      })
+      .eq('id', itemId);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error updating item completion:', error);
+    return false;
+  }
+}
+
+export async function getTodayProgress(
+  userId: string,
+  planId: string,
+  date: string
+): Promise<DailyProgress | null> {
+  return getDailyProgress(userId, planId, date);
+}
+
+export async function updateDailyProgress(
+  userId: string,
+  planId: string,
+  date: string,
+  updates: Partial<DailyProgress>
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('user_study_progress')
+      .upsert({
+        user_id: userId,
+        plan_id: planId,
+        date,
+        ...updates,
+      });
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error updating daily progress:', error);
+    return false;
+  }
+}
+
+// ============================================
+// STUDY BUDDIES
+// ============================================
+
+export interface StudyBuddy {
+  id: string;
+  user_id: string;
+  buddy_user_id: string;
+  status: 'pending' | 'active' | 'inactive';
+  shared_plan_id: string | null;
+  check_in_frequency: string;
+  created_at: string;
+  buddy_name?: string;
+  buddy_email?: string;
+  buddy_avatar?: string;
+  buddy_progress?: {
+    items_completed: number;
+    streak: number;
+  };
+}
+
+export async function getStudyBuddies(userId: string): Promise<StudyBuddy[]> {
+  try {
+    const { data, error } = await supabase
+      .from('study_buddies')
+      .select(`
+        *,
+        buddy:buddy_user_id (
+          id,
+          email,
+          raw_user_meta_data
+        )
+      `)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    
+    // Transform data to include buddy info
+    return (data || []).map((item: any) => ({
+      ...item,
+      buddy_name: item.buddy?.raw_user_meta_data?.name || 'Unknown User',
+      buddy_email: item.buddy?.email,
+      buddy_avatar: item.buddy?.raw_user_meta_data?.avatar_url,
+    })) as StudyBuddy[];
+  } catch (error) {
+    console.error('Error fetching study buddies:', error);
+    return [];
+  }
+}
+
+export async function sendBuddyRequest(
+  userId: string,
+  buddyEmail: string
+): Promise<boolean> {
+  try {
+    // First, find the user by email
+    const { data: buddyUser, error: searchError } = await supabase
+      .from('profiles')
+      .select('user_id')
+      .eq('email', buddyEmail)
+      .single();
+
+    if (searchError || !buddyUser) {
+      console.error('Buddy user not found');
+      return false;
+    }
+
+    const { error } = await supabase
+      .from('study_buddies')
+      .insert({
+        user_id: userId,
+        buddy_user_id: buddyUser.user_id,
+        status: 'pending',
+      });
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error sending buddy request:', error);
+    return false;
+  }
+}
+
+export async function acceptBuddyRequest(buddyId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('study_buddies')
+      .update({ status: 'active' })
+      .eq('id', buddyId);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error accepting buddy request:', error);
+    return false;
+  }
+}
+
+export async function rejectBuddyRequest(buddyId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('study_buddies')
+      .delete()
+      .eq('id', buddyId);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error rejecting buddy request:', error);
+    return false;
   }
 }

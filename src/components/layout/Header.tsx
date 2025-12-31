@@ -1,8 +1,10 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Terminal, Menu, X, LogOut, User } from "lucide-react";
-import { useState } from "react";
+import { Terminal, Menu, X, LogOut, User, ChevronDown } from "lucide-react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { RankBadge } from "@/components/profile/RankBadge";
+import { getUserRank } from "@/lib/rankService";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,11 +17,16 @@ import {
 const navLinks = [
   { path: "/tracks", label: "Tracks" },
   { path: "/practice", label: "Practice" },
-  { path: "/battle-matchmaking", label: "Battle Royale" },
+  { path: "/study-plans", label: "Study Plans" },
+  { path: "/tournaments", label: "Tournaments" },
+  { path: "/battle-matchmaking", label: "Battle" },
+  { path: "/analytics", label: "Analytics" },
+];
+
+const moreLinks = [
   { path: "/doubt-arena", label: "Doubt Arena" },
   { path: "/interview-prep", label: "Interview Prep" },
   { path: "/mock-interview", label: "Mock Interview" },
-  { path: "/analytics", label: "Analytics" },
   { path: "/community", label: "Community" },
   { path: "/support", label: "Support" },
 ];
@@ -29,6 +36,23 @@ export function Header() {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userRank, setUserRank] = useState<any>(null);
+
+  useEffect(() => {
+    if (user) {
+      getUserRank(user.id).then(async (rank) => {
+        if (!rank) {
+          // Initialize rank if it doesn't exist
+          const { updateUserRankFromXP } = await import('@/lib/rankService');
+          await updateUserRankFromXP(user.id, 0);
+          const newRank = await getUserRank(user.id);
+          setUserRank(newRank);
+        } else {
+          setUserRank(rank);
+        }
+      });
+    }
+  }, [user]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -44,46 +68,81 @@ export function Header() {
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
+    <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/40 bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto px-4">
-        <div className="flex h-16 items-center justify-between">
+        <div className="flex h-14 items-center justify-between">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 hover-lift">
-            <Terminal className="h-6 w-6 text-primary" />
-            <span className="font-mono text-lg font-bold">babua.lms</span>
+          <Link to="/" className="flex items-center gap-2 group">
+            <div className="relative">
+              <Terminal className="h-5 w-5 text-primary transition-transform group-hover:scale-110" />
+              <div className="absolute inset-0 blur-lg bg-primary/20 group-hover:bg-primary/30 transition-colors -z-10"></div>
+            </div>
+            <span className="font-mono text-base font-bold bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text">
+              babua.lms
+            </span>
           </Link>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden lg:flex items-center gap-1">
             {navLinks.map((link) => (
               <Link
                 key={link.path}
                 to={link.path}
-                className={`px-4 py-2 text-sm font-medium transition-colors rounded-md ${
+                className={`relative px-4 py-2 text-sm font-medium transition-all rounded-lg ${
                   location.pathname === link.path
                     ? "text-primary bg-primary/10"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-primary/5"
                 }`}
               >
                 {link.label}
               </Link>
             ))}
+            
+            {/* More Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-primary/5"
+                >
+                  More
+                  <ChevronDown className="h-4 w-4 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {moreLinks.map((link) => (
+                  <Link key={link.path} to={link.path}>
+                    <DropdownMenuItem className="cursor-pointer">
+                      {link.label}
+                    </DropdownMenuItem>
+                  </Link>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </nav>
 
           {/* Desktop Actions */}
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-3">
             {user ? (
               <>
                 <Link to="/dashboard">
-                  <Button variant="ghost" size="sm" className="font-mono text-sm">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="font-mono text-sm"
+                  >
                     Dashboard
                   </Button>
                 </Link>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="font-mono text-sm">
-                      <User className="h-4 w-4 mr-2" />
-                      Account
+                    <Button 
+                      variant="outline" 
+                      size="icon"
+                      className="h-9 w-9 rounded-full"
+                    >
+                      <User className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56">
@@ -120,17 +179,17 @@ export function Header() {
             ) : (
               <Button 
                 size="sm" 
-                className="font-mono text-sm"
+                className="font-mono text-sm shadow-lg shadow-primary/20"
                 onClick={handleStartLearning}
               >
-                Start Learning
+                Get Started
               </Button>
             )}
           </div>
 
           {/* Mobile Menu Toggle */}
           <button
-            className="md:hidden p-2"
+            className="lg:hidden p-2 hover:bg-primary/5 rounded-lg transition-colors"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           >
             {mobileMenuOpen ? (
@@ -143,34 +202,54 @@ export function Header() {
 
         {/* Mobile Menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden py-4 border-t border-border">
-            <nav className="flex flex-col gap-2">
+          <div className="lg:hidden py-4 border-t border-border/40 animate-in slide-in-from-top-2 duration-200">
+            <nav className="flex flex-col gap-1">
               {navLinks.map((link) => (
                 <Link
                   key={link.path}
                   to={link.path}
                   onClick={() => setMobileMenuOpen(false)}
-                  className={`px-4 py-3 text-sm font-medium transition-colors rounded-md ${
+                  className={`px-4 py-2.5 text-sm font-medium transition-all rounded-lg ${
                     location.pathname === link.path
                       ? "text-primary bg-primary/10"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-primary/5"
                   }`}
                 >
                   {link.label}
                 </Link>
               ))}
-              <div className="pt-2 mt-2 border-t border-border flex flex-col gap-2">
+              
+              <div className="px-4 py-2 text-xs font-semibold text-muted-foreground">
+                More
+              </div>
+              
+              {moreLinks.map((link) => (
+                <Link
+                  key={link.path}
+                  to={link.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`px-4 py-2.5 text-sm font-medium transition-all rounded-lg ${
+                    location.pathname === link.path
+                      ? "text-primary bg-primary/10"
+                      : "text-muted-foreground hover:text-foreground hover:bg-primary/5"
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ))}
+              
+              <div className="pt-2 mt-2 border-t border-border/40 flex flex-col gap-1">
                 {user ? (
                   <>
                     <Link to="/dashboard" onClick={() => setMobileMenuOpen(false)}>
-                      <Button variant="ghost" className="w-full font-mono text-sm justify-start">
+                      <Button variant="ghost" className="w-full font-mono text-sm justify-start h-9 hover:bg-primary/5">
                         <User className="h-4 w-4 mr-2" />
                         Dashboard
                       </Button>
                     </Link>
                     <Button 
                       variant="ghost" 
-                      className="w-full font-mono text-sm justify-start text-destructive hover:text-destructive"
+                      className="w-full font-mono text-sm justify-start text-destructive hover:text-destructive hover:bg-destructive/10 h-9"
                       onClick={() => {
                         handleSignOut();
                         setMobileMenuOpen(false);
@@ -182,7 +261,7 @@ export function Header() {
                   </>
                 ) : (
                   <Button 
-                    className="w-full font-mono text-sm"
+                    className="w-full font-mono text-sm h-9 bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20"
                     onClick={() => {
                       handleStartLearning();
                       setMobileMenuOpen(false);

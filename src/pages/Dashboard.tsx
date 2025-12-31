@@ -10,6 +10,9 @@ import {
   Clock,
   CheckCircle2,
   Bot,
+  Trophy,
+  Medal,
+  Crown,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useBabuaAI } from "@/hooks/useBabuaAI";
@@ -20,14 +23,29 @@ import { getUserProfile, getUserTrackProgress, getSolvedProblems, recalculateAll
 import type { UserProfile, UserTrackProgress } from "@/lib/userDataService";
 import { DailyPlanner } from "@/components/ui/DailyPlanner";
 import { DailyChallengeCard } from "@/components/ui/DailyChallengeCard";
+import { DailyTaskList } from "@/components/study-plans/DailyTaskList";
+import { RankBadge, RankProgressCard } from "@/components/profile/RankBadge";
+import { RankUpNotification } from "@/components/profile/RankUpNotification";
+import { useRankSystem } from "@/hooks/useRankSystem";
+import { RecommendedForYou } from "@/components/learning/RecommendedForYou";
+import { LearningInsights } from "@/components/learning/LearningInsights";
+import { getGlobalRankLeaderboard } from "@/lib/rankService";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export default function Dashboard() {
   const { sendMessage } = useBabuaAI();
   const { user } = useAuth();
+  const {
+    userRank,
+    showRankUpModal,
+    rankUpData,
+    dismissRankUp,
+  } = useRankSystem();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [trackProgress, setTrackProgress] = useState<UserTrackProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const [difficultyStats, setDifficultyStats] = useState({ easy: 0, medium: 0, hard: 0 });
+  const [topUsers, setTopUsers] = useState<any[]>([]);
 
   const loadUserData = async () => {
     if (!user) return;
@@ -37,14 +55,16 @@ export default function Dashboard() {
       // First, recalculate all track progress to fix any existing incorrect data
       await recalculateAllTrackProgress(user.id, tracks);
       
-      const [profile, progress, problems] = await Promise.all([
+      const [profile, progress, problems, leaderboard] = await Promise.all([
         getUserProfile(user.id),
         getUserTrackProgress(user.id),
         getUserProblemProgress(user.id),
+        getGlobalRankLeaderboard(5),
       ]);
 
       setUserProfile(profile);
       setTrackProgress(progress);
+      setTopUsers(leaderboard as any[]);
       
       // Calculate difficulty breakdown
       const solvedProblems = problems.filter(p => p.solved);
@@ -142,11 +162,47 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+
+            {/* Rank Card */}
+            {userRank && (
+              <div className="surface-card p-4 flex items-center gap-4">
+                <RankBadge
+                  rank={userRank.current_rank}
+                  xp={userRank.rank_xp}
+                  xpToNext={userRank.xp_to_next_rank}
+                  progressPercentage={userRank.progress_percentage}
+                  size="large"
+                  showTooltip={false}
+                />
+                <div>
+                  <div className="text-sm text-muted-foreground">Your Rank</div>
+                  <div className="text-xs text-muted-foreground font-mono mt-1">
+                    {userRank.rank_xp.toLocaleString()} XP
+                  </div>
+                  {userRank.xp_to_next_rank > 0 && (
+                    <div className="text-xs text-muted-foreground font-mono">
+                      {userRank.xp_to_next_rank.toLocaleString()} to next
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Main Content */}
             <div className="lg:col-span-2 space-y-6">
+              {/* Rank Progress Card */}
+              {userRank && (
+                <RankProgressCard
+                  currentRank={userRank.current_rank}
+                  xp={userRank.rank_xp}
+                  xpToNext={userRank.xp_to_next_rank}
+                  progressPercentage={userRank.progress_percentage}
+                  nextRank={userRank.next_rank}
+                />
+              )}
+
               {/* Quick Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
@@ -165,6 +221,9 @@ export default function Dashboard() {
 
               {/* Daily Challenge */}
               <DailyChallengeCard />
+
+              {/* Daily Study Tasks */}
+              <DailyTaskList />
 
               {/* Track Progress */}
               <div className="surface-card p-6">
@@ -218,6 +277,9 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {/* AI-Powered Learning Section */}
+              <RecommendedForYou />
+
               {/* Recent Activity */}
               <div className="surface-card p-6">
                 <h2 className="font-mono text-lg font-semibold mb-4">Recent Activity</h2>
@@ -247,32 +309,81 @@ export default function Dashboard() {
 
             {/* Sidebar */}
             <div className="space-y-6">
-              {/* Rank Display */}
+              {/* Learning Insights */}
+              <LearningInsights />
+
+              {/* Top 5 Leaderboard */}
               <div className="surface-card p-4">
-                <div className="flex items-center justify-around">
-                  <div className="text-center">
-                    <div className="w-16 h-16 rounded-full bg-amber-400/20 border-2 border-amber-400 flex items-center justify-center mb-2 mx-auto">
-                      <span className="text-2xl">👤</span>
-                    </div>
-                    <div className="text-xs font-mono font-bold">Rank 1</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="w-16 h-16 rounded-full bg-gray-400/20 border-2 border-gray-400 flex items-center justify-center mb-2 mx-auto">
-                      <span className="text-2xl">👤</span>
-                    </div>
-                    <div className="text-xs font-mono font-bold">Rank 2</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="w-16 h-16 rounded-full bg-orange-400/20 border-2 border-orange-400 flex items-center justify-center mb-2 mx-auto">
-                      <span className="text-2xl">👤</span>
-                    </div>
-                    <div className="text-xs font-mono font-bold">Rank 3</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="w-16 h-16 rounded-full bg-secondary border-2 border-border flex items-center justify-center mb-2 mx-auto">
-                      <span className="text-sm">****</span>
-                    </div>
-                  </div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-mono text-sm font-semibold flex items-center gap-2">
+                    <Trophy className="h-4 w-4 text-amber-400" />
+                    Top Performers
+                  </h3>
+                  <Link to="/leaderboards">
+                    <Button variant="ghost" size="sm" className="h-7 text-xs">
+                      View All
+                      <ArrowRight className="h-3 w-3 ml-1" />
+                    </Button>
+                  </Link>
+                </div>
+                <div className="space-y-3">
+                  {topUsers.length > 0 ? (
+                    topUsers.slice(0, 5).map((entry: any, index: number) => {
+                      const getRankIcon = () => {
+                        switch (index + 1) {
+                          case 1:
+                            return <Crown className="w-4 h-4 text-yellow-500" />;
+                          case 2:
+                            return <Medal className="w-4 h-4 text-gray-400" />;
+                          case 3:
+                            return <Medal className="w-4 h-4 text-amber-600" />;
+                          default:
+                            return <span className="text-xs font-mono text-muted-foreground w-4 text-center">{index + 1}</span>;
+                        }
+                      };
+
+                      const getInitials = () => {
+                        if (entry.full_name) {
+                          return entry.full_name
+                            .split(' ')
+                            .map((n: string) => n[0])
+                            .join('')
+                            .toUpperCase()
+                            .slice(0, 2);
+                        }
+                        return entry.email?.[0].toUpperCase() || 'U';
+                      };
+
+                      return (
+                        <div key={entry.user_id} className="flex items-center gap-3">
+                          <div className="w-6 flex items-center justify-center">
+                            {getRankIcon()}
+                          </div>
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={entry.avatar_url || undefined} />
+                            <AvatarFallback className="text-xs">{getInitials()}</AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">
+                              {entry.full_name || entry.username || 'Anonymous'}
+                            </p>
+                            <p className="text-xs text-muted-foreground font-mono">
+                              {entry.rank_xp?.toLocaleString() || 0} XP
+                            </p>
+                          </div>
+                          <RankBadge
+                            rank={entry.current_rank}
+                            size="small"
+                            showTooltip={false}
+                          />
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="text-xs text-muted-foreground text-center py-4">
+                      No leaderboard data available
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -302,6 +413,16 @@ export default function Dashboard() {
 
       {/* Daily Planner */}
       <DailyPlanner />
+
+      {/* Rank Up Notification */}
+      {showRankUpModal && rankUpData && (
+        <RankUpNotification
+          oldRank={rankUpData.oldRank}
+          newRank={rankUpData.newRank}
+          newXP={rankUpData.newXP}
+          onClose={dismissRankUp}
+        />
+      )}
     </Layout>
   );
 }

@@ -10,7 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
-*.local
+# Remove this line to allow .env.local to be committed
+# *.local
 
 # Editor directories and files
 .vscode/*

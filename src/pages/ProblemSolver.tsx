@@ -15,7 +15,7 @@ import Editor, { type Monaco } from "@monaco-editor/react";
 import { 
   Play, RotateCcw, Lightbulb, CheckCircle2, XCircle, AlertCircle, Bot, Timer, 
   Copy, Check, Swords, Users, Download, Maximize2, Minimize2, Settings2,
-  Moon, Sun, ZoomIn, ZoomOut, WrapText, Code2, Save
+  Moon, Sun, ZoomIn, ZoomOut, WrapText, Code2, Save, Sparkles
 } from "lucide-react";
 import { detailedProblems, enhancedUserProgress, dsaTopics, tracks } from "@/data/mockData";
 import { problemService } from "@/services/problemService";
@@ -27,6 +27,14 @@ import { getUserStats, unlockAchievement, getUnlockedAchievements } from "@/lib/
 import { achievements, calculateXPForProblem, checkAchievementUnlock } from "@/data/achievements";
 import { useToast } from "@/hooks/use-toast";
 import { codeExecutionService, type SupportedLanguage } from "@/services/codeExecutionService";
+import { parallelCodeRunner } from "@/services/parallelCodeRunner";
+import { submissionService } from "@/services/submissionService";
+import { SubmissionHistory } from "@/components/profile/SubmissionHistory";
+import { CodeDiffViewer } from "@/components/profile/CodeDiffViewer";
+import CodeReviewPanel from "@/components/ai/CodeReviewPanel";
+import { requestCodeReview, checkRateLimit, type CodeReview, type RateLimitStatus } from "@/services/codeReviewService";
+import { InterviewCoach } from "@/components/interview/InterviewCoach";
+import { updateTopicPerformance } from "@/services/learningPathService";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,6 +62,17 @@ export default function ProblemSolver() {
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [isSolved, setIsSolved] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState("description");
+  const [compareVersions, setCompareVersions] = useState<{ v1: number; v2: number } | null>(null);
+  
+  // AI Code Review state
+  const [codeReview, setCodeReview] = useState<CodeReview | null>(null);
+  const [isReviewLoading, setIsReviewLoading] = useState(false);
+  const [rateLimitStatus, setRateLimitStatus] = useState<RateLimitStatus | null>(null);
+  const [lastSubmittedCode, setLastSubmittedCode] = useState("");
+  
+  // Interview Coach state
+  const [showInterviewCoach, setShowInterviewCoach] = useState(false);
   
   // Editor settings
   const [editorTheme, setEditorTheme] = useState<"vs-dark" | "light">("vs-dark");
@@ -69,6 +88,22 @@ export default function ProblemSolver() {
   const isDuelMode = searchParams.get("mode") === "duel";
   const duelId = searchParams.get("id");
   const isCustomDuel = searchParams.get("custom") === "true";
+
+  // Check rate limit on mount
+  useEffect(() => {
+    const checkLimit = async () => {
+      try {
+        const status = await checkRateLimit();
+        setRateLimitStatus(status);
+      } catch (error) {
+        console.error('Failed to check rate limit:', error);
+      }
+    };
+    
+    if (user) {
+      checkLimit();
+    }
+  }, [user]);
 
   // Load saved code from localStorage
   const loadSavedCode = useCallback(() => {
@@ -103,19 +138,25 @@ export default function ProblemSolver() {
     if (!id) return;
 
     try {
-      // Try to fetch from database first
-      let foundProblem = await problemService.getProblemBySlug(id);
+      let foundProblem = null;
       
-      // Fallback to mockData if not in database
+      // First, try to find in detailedProblems by ID or slug
+      foundProblem = detailedProblems[id];
+      
+      // If not found, try numeric ID
       if (!foundProblem) {
-        foundProblem = detailedProblems[id];
-        
-        // If not found, try numeric ID
-        if (!foundProblem) {
-          const numericId = parseInt(id);
-          if (!isNaN(numericId)) {
-            foundProblem = detailedProblems[numericId];
-          }
+        const numericId = parseInt(id);
+        if (!isNaN(numericId)) {
+          foundProblem = detailedProblems[numericId];
+        }
+      }
+      
+      // Only try database as fallback if still not found
+      if (!foundProblem) {
+        try {
+          foundProblem = await problemService.getProblemBySlug(id);
+        } catch (err) {
+          console.warn('Could not fetch from database, using mock data only');
         }
       }
       
@@ -181,8 +222,13 @@ export default function ProblemSolver() {
         
         // Check if user has solved this problem
         if (user) {
-          const progress = await getProblemProgress(user.id, id);
-          setIsSolved(progress?.solved || false);
+          try {
+            const progress = await getProblemProgress(user.id, id);
+            setIsSolved(progress?.solved || false);
+          } catch (err) {
+            console.warn('Could not fetch problem progress:', err);
+            setIsSolved(false);
+          }
         }
       } else {
         navigate("/practice");
@@ -251,15 +297,6 @@ export default function ProblemSolver() {
       return;
     }
 
-    if (!codeExecutionService.isConfigured()) {
-      toast({
-        title: "Code Execution Not Configured",
-        description: "Please configure Judge0 API key in environment variables",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setIsRunning(true);
     setTestResults(null);
     
@@ -268,40 +305,38 @@ export default function ProblemSolver() {
         // Get visible test cases
         const visibleTests = problem.testCases.filter(tc => !tc.hidden);
         
-        // Execute code against test cases
-        const result = await codeExecutionService.executeWithTestCases(
+        // Execute all test cases in parallel
+        const result = await parallelCodeRunner.runAllTests(
           code,
-          language as SupportedLanguage,
+          language as 'javascript' | 'python',
           visibleTests.map(tc => ({
             input: tc.input,
             expected_output: tc.expectedOutput
-          })),
-          problem.timeLimit || 2000,
-          problem.memoryLimit || 256000
+          }))
         );
 
         // Format results for UI
         const mockResults: TestResult = {
-          passed: result.passed,
-          total: result.results.length,
+          passed: result.passedTests,
+          total: result.totalTests,
           failures: result.results
             .map((r, idx) => ({
               testCase: idx + 1,
-              input: r.input,
-              expected: r.expected_output,
-              got: r.actual_output || "No output",
+              input: JSON.stringify(r.input),
+              expected: JSON.stringify(r.expected),
+              got: r.actual !== null ? JSON.stringify(r.actual) : "No output",
               error: r.error || (r.passed ? null : "Wrong Answer"),
-              time: r.time,
-              memory: r.memory
+              time: `${r.executionTime.toFixed(2)}ms`,
+              memory: null
             }))
-            .filter(r => !result.results[r.testCase - 1].passed)
+            .filter((_, idx) => !result.results[idx].passed)
         };
         
         setTestResults(mockResults);
         
         toast({
           title: result.allPassed ? "All Tests Passed! ✓" : "Some Tests Failed",
-          description: `${result.passed}/${result.results.length} test cases passed${result.totalTime ? ` in ${result.totalTime.toFixed(3)}s` : ''}`,
+          description: parallelCodeRunner.getSummary(result),
           variant: result.allPassed ? "default" : "destructive",
         });
       }
@@ -344,42 +379,88 @@ export default function ProblemSolver() {
     // Save code before submission
     saveCodeLocally();
     
-    // Simulate comprehensive test execution with all test cases
+    // Execute code with real test cases
     setTimeout(async () => {
       if (problem) {
-        // More realistic validation
-        const codeLength = code.replace(/\s+/g, '').length;
-        const hasLogic = codeLength > 50;
-        const hasProperStructure = /function|def |class |void /.test(code);
-        const hasReturnOrOutput = /return|print|console\.log|System\.out/.test(code);
-        
-        // Calculate success probability based on code quality
-        const qualityScore = (hasLogic ? 0.3 : 0) + (hasProperStructure ? 0.3 : 0) + (hasReturnOrOutput ? 0.4 : 0);
-        const randomFactor = Math.random();
-        const allPassed = qualityScore > 0.7 && randomFactor > 0.3;
-        
-        const allTests = problem.testCases.length;
-        const passedCount = allPassed ? allTests : Math.floor(allTests * qualityScore);
-        
-        const mockResults: TestResult = allPassed
-          ? {
-              passed: allTests,
-              total: allTests,
-              failures: []
-            }
-          : {
-              passed: passedCount,
-              total: allTests,
-              failures: problem.testCases.slice(passedCount, passedCount + 2).map((tc, idx) => ({
-                testCase: passedCount + idx + 1,
-                input: tc.hidden ? "Hidden test case" : tc.input,
-                expected: tc.hidden ? "Hidden" : tc.expectedOutput,
-                got: "Wrong output",
-                error: randomFactor > 0.5 ? "Wrong Answer" : "Time Limit Exceeded"
+        try {
+          // Execute all test cases in parallel (including hidden ones)
+          const result = await parallelCodeRunner.runAllTests(
+            code,
+            language as 'javascript' | 'python',
+            problem.testCases.map(tc => ({
+              input: tc.input,
+              expected_output: tc.expectedOutput
+            }))
+          );
+
+          const mockResults: TestResult = {
+            passed: result.passedTests,
+            total: result.totalTests,
+            failures: result.results
+              .map((r, idx) => ({
+                testCase: idx + 1,
+                input: JSON.stringify(r.input),
+                expected: JSON.stringify(r.expected),
+                got: r.actual !== null ? JSON.stringify(r.actual) : "No output",
+                error: r.error || (r.passed ? null : "Wrong Answer"),
+                time: `${r.executionTime.toFixed(2)}ms`,
+                memory: null
               }))
-            };
+              .filter((_, idx) => !result.results[idx].passed)
+          };
+
+          setTestResults(mockResults);
+          
+          const allPassed = result.allPassed;
         
-        setTestResults(mockResults);
+          // Save submission to database
+          const submissionStatus = allPassed ? 'accepted' : 
+            mockResults.failures.length > 0 ? 'wrong_answer' : 'runtime_error';
+        
+          // Build complete test results from parallel execution
+          const allTestResults = result.results.map((r, idx) => ({
+            input: JSON.stringify(r.input),
+            expected_output: JSON.stringify(r.expected),
+            actual_output: r.actual !== null ? JSON.stringify(r.actual) : null,
+            passed: r.passed,
+            error: r.error,
+            time: `${r.executionTime.toFixed(2)}ms`,
+            memory: null,
+          }));
+        
+          const submissionResult = await submissionService.submitCode({
+            problemId: String(problem.id),
+            language,
+            code,
+            status: submissionStatus,
+            testResults: allTestResults,
+            passedCount: result.passedTests,
+            failedCount: result.failedTests,
+            totalTime: result.totalTime,
+            memoryUsed: Math.floor(1024 + Math.random() * 2048),
+            allPassed,
+            errorMessage: allPassed ? null : mockResults.failures[0]?.error || null,
+          });
+          
+          if (submissionResult) {
+            console.log('Submission saved:', submissionResult);
+          } else {
+            console.warn('Submission not saved - database table may not exist');
+          }
+        
+        // Save code for AI review
+        if (allPassed) {
+          setLastSubmittedCode(code);
+        }
+        
+        // Track topic performance for learning recommendations
+        await updateTopicPerformance(
+          user.id,
+          String(problem.id),
+          allPassed,
+          timeSpent, // Already in seconds
+          problem.difficulty
+        );
         
         // If all tests passed, mark as solved
         if (allPassed && !isSolved) {
@@ -434,13 +515,21 @@ export default function ProblemSolver() {
         } else if (!allPassed) {
           toast({
             title: "Wrong Answer",
-            description: `${passedCount}/${allTests} test cases passed. Keep trying!`,
+            description: `${mockResults.passed}/${mockResults.total} test cases passed. Keep trying!`,
+            variant: "destructive",
+          });
+        }
+        } catch (error) {
+          console.error('Code execution error:', error);
+          toast({
+            title: "Execution Error",
+            description: "Failed to execute code. Please try again.",
             variant: "destructive",
           });
         }
       }
       setIsRunning(false);
-    }, 2500);
+    }, 1500);
   };
 
   const handleCopyDuelLink = async () => {
@@ -482,30 +571,102 @@ export default function ProblemSolver() {
     }
   };
 
+  const handleRequestReview = async () => {
+    if (!user) {
+      toast({
+        title: "Please Sign In",
+        description: "You need to be signed in to get AI code reviews",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!problem || !id) return;
+    
+    const codeToReview = lastSubmittedCode || code;
+    
+    if (!codeToReview.trim()) {
+      toast({
+        title: "No Code to Review",
+        description: "Please submit your solution first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsReviewLoading(true);
+    setCodeReview(null);
+
+    try {
+      // Request AI review
+      const review = await requestCodeReview({
+        code: codeToReview,
+        language,
+        problemId: id,
+        problemTitle: problem.title,
+        problemDescription: problem.description,
+      });
+
+      setCodeReview(review);
+      
+      // Update rate limit status
+      const newStatus = await checkRateLimit();
+      setRateLimitStatus(newStatus);
+
+      toast({
+        title: "Review Complete!",
+        description: "Your code has been analyzed by AI",
+      });
+
+      // Scroll to review
+      setTimeout(() => {
+        const reviewElement = document.getElementById('code-review-section');
+        if (reviewElement) {
+          reviewElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
+
+    } catch (error: unknown) {
+      console.error('Failed to get code review:', error);
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
+      toast({
+        title: "Review Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsReviewLoading(false);
+    }
+  };
+
   const handleDownload = () => {
     if (!code || !problem) return;
-    
-    const extensions: Record<string, string> = {
+
+    const fileExtensions: Record<string, string> = {
       javascript: 'js',
       python: 'py',
       java: 'java',
       cpp: 'cpp',
-      c: 'c'
     };
+
+    const extension = fileExtensions[language] || 'txt';
+    const fileName = `${problem.title.replace(/\s+/g, '_')}.${extension}`;
     
-    const ext = extensions[language] || 'txt';
-    const filename = `${problem.slug}.${ext}`;
     const blob = new Blob([code], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = filename;
+    a.download = fileName;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
     
     toast({
-      title: "Download Complete",
-      description: `Code downloaded as ${filename}`,
+      title: "Code Downloaded",
+      description: `Saved as ${fileName}`,
     });
   };
 
@@ -690,8 +851,30 @@ export default function ProblemSolver() {
         <ResizablePanelGroup direction="horizontal" className="flex-1">
           {/* Problem Description Panel */}
           <ResizablePanel defaultSize={35} minSize={25}>
-            <ScrollArea className="h-full">
-              <div className="p-6 space-y-6">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
+              <TabsList className="w-full justify-start rounded-none border-b bg-transparent p-0 flex-shrink-0">
+                <TabsTrigger value="description" className="rounded-none">
+                  Description
+                </TabsTrigger>
+                <TabsTrigger value="submissions" className="rounded-none">
+                  Submissions
+                </TabsTrigger>
+                {testResults?.passed === testResults?.total && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowInterviewCoach(!showInterviewCoach)}
+                    className="ml-auto mr-2"
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    {showInterviewCoach ? "Exit Interview" : "Practice Interview"}
+                  </Button>
+                )}
+              </TabsList>
+
+              <TabsContent value="description" className="flex-1 m-0 overflow-hidden">
+                <ScrollArea className="h-full">
+                  <div className="p-6 space-y-6">
                 <div>
                   <h2 className="text-lg font-semibold mb-2 font-mono">Description</h2>
                   <p className="text-muted-foreground whitespace-pre-line">{problem.description}</p>
@@ -773,8 +956,45 @@ export default function ProblemSolver() {
                   <p>Acceptance Rate: {problem.acceptanceRate}%</p>
                   <p>Companies: {problem.companies.join(", ")}</p>
                 </div>
-              </div>
-            </ScrollArea>
+                  </div>
+                </ScrollArea>
+              </TabsContent>
+
+              <TabsContent value="submissions" className="flex-1 m-0 overflow-hidden">
+                {compareVersions ? (
+                  <CodeDiffViewer
+                    problemId={String(problem.id)}
+                    version1={compareVersions.v1}
+                    version2={compareVersions.v2}
+                    onBack={() => setCompareVersions(null)}
+                    onReplay={(code, lang) => {
+                      setCode(code);
+                      setLanguage(lang);
+                      setCompareVersions(null);
+                      setActiveTab("description");
+                      toast({
+                        title: "Code Loaded",
+                        description: `Version code loaded into editor`,
+                      });
+                    }}
+                  />
+                ) : (
+                  <SubmissionHistory
+                    problemId={String(problem.id)}
+                    onLoadCode={(code, lang) => {
+                      setCode(code);
+                      setLanguage(lang);
+                      setActiveTab("description");
+                      toast({
+                        title: "Code Loaded",
+                        description: "Submission code loaded into editor",
+                      });
+                    }}
+                    onCompare={(v1, v2) => setCompareVersions({ v1, v2 })}
+                  />
+                )}
+              </TabsContent>
+            </Tabs>
           </ResizablePanel>
 
           <ResizableHandle withHandle />
@@ -1071,6 +1291,38 @@ export default function ProblemSolver() {
                             </Button>
                           </div>
                         )}
+
+                        {/* AI Code Review Section */}
+                        {testResults.passed === testResults.total && (
+                          <div className="space-y-3">
+                            <Separator />
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h3 className="font-semibold text-sm">Want detailed feedback?</h3>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Get AI-powered analysis of your code
+                                </p>
+                              </div>
+                              <Button
+                                onClick={handleRequestReview}
+                                disabled={isReviewLoading}
+                                className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
+                              >
+                                <Sparkles className="h-4 w-4 mr-2" />
+                                {isReviewLoading ? "Analyzing..." : "Get AI Review"}
+                              </Button>
+                            </div>
+                            
+                            {rateLimitStatus && !rateLimitStatus.isPro && (
+                              <p className="text-xs text-muted-foreground">
+                                {rateLimitStatus.remainingReviews} review{rateLimitStatus.remainingReviews !== 1 ? "s" : ""} remaining today
+                                {rateLimitStatus.remainingReviews === 0 && (
+                                  <> • <a href="/pricing" className="text-purple-500 hover:underline">Upgrade to Pro</a> for unlimited</>
+                                )}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </TabsContent>
                   )}
@@ -1079,6 +1331,32 @@ export default function ProblemSolver() {
             </div>
           </ResizablePanel>
         </ResizablePanelGroup>
+
+        {/* AI Code Review Panel */}
+        {codeReview && (
+          <div id="code-review-section" className="mt-6">
+            <CodeReviewPanel
+              review={codeReview}
+              isLoading={isReviewLoading}
+              onClose={() => setCodeReview(null)}
+            />
+          </div>
+        )}
+
+        {/* Interview Coach Panel */}
+        {showInterviewCoach && problem && (
+          <div className="mt-6">
+            <InterviewCoach
+              problemId={problem.id}
+              problemTitle={problem.title}
+              problemDescription={problem.description}
+              language={language}
+              code={code}
+              testsPassed={testResults?.passed === testResults?.total}
+              onClose={() => setShowInterviewCoach(false)}
+            />
+          </div>
+        )}
 
         {/* AI Chat Panel - Always Available with Context */}
         <BabuaAIChat 

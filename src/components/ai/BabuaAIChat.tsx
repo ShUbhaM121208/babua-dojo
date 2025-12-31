@@ -27,11 +27,6 @@ export function BabuaAIChat({ problem, userCode, language, testResults, userProg
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Debug: Log when problem changes
-  useEffect(() => {
-    console.log("BabuaAIChat received problem:", problem ? problem.title : "undefined");
-  }, [problem]);
-
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
@@ -45,6 +40,8 @@ export function BabuaAIChat({ problem, userCode, language, testResults, userProg
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
+    
+    // Always include context when available
     sendMessage(input.trim(), {
       problem,
       userCode,
@@ -57,6 +54,8 @@ export function BabuaAIChat({ problem, userCode, language, testResults, userProg
 
   const handleQuickPrompt = (prompt: string) => {
     if (isLoading) return;
+    
+    // Always include context
     sendMessage(prompt, {
       problem,
       userCode,

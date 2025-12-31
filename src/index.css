@@ -125,6 +125,23 @@
     }
   }
 
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+
+  @keyframes glow {
+    from {
+      box-shadow: 0 0 5px currentColor,
+                  0 0 10px currentColor,
+                  0 0 15px currentColor;
+    }
+    to {
+      box-shadow: 0 0 10px currentColor,
+                  0 0 20px currentColor,
+                  0 0 30px currentColor;
+    }
+  }
+
   .stagger-1 { animation-delay: 0.1s; }
   .stagger-2 { animation-delay: 0.2s; }
   .stagger-3 { animation-delay: 0.3s; }

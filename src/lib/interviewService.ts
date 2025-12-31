@@ -137,43 +137,63 @@ export async function leaveInterviewQueue(userId: string): Promise<void> {
 }
 
 export async function getAvailablePeers(userId: string): Promise<InterviewProfile[]> {
-  const { data } = await supabase
-    .from('interview_profiles')
-    .select('*')
-    .eq('is_available', true)
-    .neq('user_id', userId)
-    .limit(20);
+  try {
+    const { data, error } = await supabase
+      .from('interview_profiles')
+      .select('*')
+      .eq('is_available', true)
+      .neq('user_id', userId)
+      .limit(20);
     
-  return data || [];
+    if (error) {
+      console.warn('Interview profiles table not found or error fetching peers:', error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.warn('Error fetching available peers:', err);
+    return [];
+  }
 }
 
 export async function getUserInterviewProfile(userId: string): Promise<InterviewProfile | null> {
-  const { data, error } = await supabase
-    .from('interview_profiles')
-    .select('*')
-    .eq('user_id', userId)
-    .single();
-    
-  // If profile doesn't exist, create a basic one
-  if (error && error.code === 'PGRST116') {
-    const { data: user } = await supabase.auth.getUser();
-    const username = user?.user?.user_metadata?.full_name || user?.user?.email?.split('@')[0] || 'User';
-    
-    const { data: newProfile } = await supabase
+  try {
+    const { data, error } = await supabase
       .from('interview_profiles')
-      .insert({
-        user_id: userId,
-        username: username,
-        experience_level: 'intermediate',
-        is_available: true
-      })
-      .select()
+      .select('*')
+      .eq('user_id', userId)
       .single();
       
-    return newProfile;
-  }
+    // If profile doesn't exist, create a basic one
+    if (error && error.code === 'PGRST116') {
+      const { data: user } = await supabase.auth.getUser();
+      const username = user?.user?.user_metadata?.full_name || user?.user?.email?.split('@')[0] || 'User';
+      
+      const { data: newProfile } = await supabase
+        .from('interview_profiles')
+        .insert({
+          user_id: userId,
+          username: username,
+          experience_level: 'intermediate',
+          is_available: true
+        })
+        .select()
+      .single();
+      
+      return newProfile || null;
+    }
     
-  return data;
+    // If table doesn't exist or other error, return null
+    if (error) {
+      console.warn('Error fetching interview profile:', error);
+      return null;
+    }
+      
+    return data;
+  } catch (err) {
+    console.warn('Error in getUserInterviewProfile:', err);
+    return null;
+  }
 }
 
 export async function createOrUpdateInterviewProfile(

@@ -37,6 +37,12 @@ const BattleMatchmaking = lazy(() => import("./pages/BattleMatchmaking"));
 const BattleArena = lazy(() => import("./pages/BattleArena"));
 const InterviewMatching = lazy(() => import("./pages/InterviewMatching"));
 const InterviewRoom = lazy(() => import("./pages/InterviewRoom"));
+const StudyPlans = lazy(() => import("./pages/StudyPlans"));
+const StudyPlanDetail = lazy(() => import("./pages/StudyPlanDetail"));
+const Leaderboards = lazy(() => import("./pages/Leaderboards"));
+const Tournaments = lazy(() => import("./pages/Tournaments"));
+const TournamentDetails = lazy(() => import("./components/tournaments/TournamentDetails"));
+const TournamentLive = lazy(() => import("./pages/TournamentLive"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -166,6 +172,66 @@ const App = () => (
                     <ProtectedRoute>
                       <Suspense fallback={<AnalyticsSkeleton />}>
                         <Analytics />
+                      </Suspense>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/study-plans"
+                  element={
+                    <ProtectedRoute>
+                      <Suspense fallback={<DashboardSkeleton />}>
+                        <StudyPlans />
+                      </Suspense>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/study-plans/:id"
+                  element={
+                    <ProtectedRoute>
+                      <Suspense fallback={<DashboardSkeleton />}>
+                        <StudyPlanDetail />
+                      </Suspense>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/leaderboards"
+                  element={
+                    <ProtectedRoute>
+                      <Suspense fallback={<DashboardSkeleton />}>
+                        <Leaderboards />
+                      </Suspense>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/tournaments"
+                  element={
+                    <ProtectedRoute>
+                      <Suspense fallback={<DashboardSkeleton />}>
+                        <Tournaments />
+                      </Suspense>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/tournaments/:tournamentId"
+                  element={
+                    <ProtectedRoute>
+                      <Suspense fallback={<DashboardSkeleton />}>
+                        <TournamentDetails />
+                      </Suspense>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/tournaments/:tournamentId/live"
+                  element={
+                    <ProtectedRoute>
+                      <Suspense fallback={<DashboardSkeleton />}>
+                        <TournamentLive />
                       </Suspense>
                     </ProtectedRoute>
                   }

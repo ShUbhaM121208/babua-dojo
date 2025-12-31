@@ -115,6 +115,8 @@ export default function TrackDetail() {
   const currentTopics = track ? getTopicsForTrack(track.slug) : dsaTopics;
   const [expandedTopic, setExpandedTopic] = useState<string | null>(currentTopics[0]?.id || null);
   const [selectedProblem, setSelectedProblem] = useState(currentTopics[0]?.subtopics[0] || null);
+  // Separate state to persist problem context for AI, even when modal closes
+  const [lastViewedProblem, setLastViewedProblem] = useState<any>(currentTopics[0]?.subtopics[0] || null);
   const { sendMessage } = useBabuaAI();
 
   const handleAskAI = (context: string) => {
@@ -223,7 +225,10 @@ export default function TrackDetail() {
                             return (
                               <button
                                 key={sub.id}
-                                onClick={() => setSelectedProblem(sub)}
+                                onClick={() => {
+                                  setSelectedProblem(sub);
+                                  setLastViewedProblem(sub); // Persist for AI context
+                                }}
                                 className={`w-full flex items-center gap-2 p-2 rounded text-left text-sm transition-colors ${
                                   selectedProblem?.id === sub.id
                                     ? "bg-primary/10 text-primary"
@@ -389,7 +394,7 @@ export default function TrackDetail() {
                     <Button 
                       variant="outline" 
                       className="font-mono ml-auto"
-                      onClick={() => handleAskAI(`Can you explain the ${selectedProblem?.title} problem and give me hints to solve it?`)}
+                      onClick={() => handleAskAI(`Can you explain the ${lastViewedProblem?.title} problem and give me hints to solve it?`)}
                     >
                       <Bot className="mr-2 h-4 w-4" />
                       Ask AI
@@ -430,16 +435,16 @@ export default function TrackDetail() {
 
         {/* AI Chat with selected problem context */}
         <BabuaAIChat 
-          problem={selectedProblem?.id ? (
-            detailedProblems[selectedProblem.id] || 
-            detailedProblems[parseInt(selectedProblem.id) || 0] ||
+          problem={lastViewedProblem?.id ? (
+            detailedProblems[lastViewedProblem.id] || 
+            detailedProblems[parseInt(lastViewedProblem.id) || 0] ||
             // If no detailed problem found, create a minimal problem object from subtopic
             {
-              id: selectedProblem.id,
-              title: selectedProblem.title,
-              slug: selectedProblem.id,
-              difficulty: selectedProblem.difficulty as "easy" | "medium" | "hard",
-              description: `This is the ${selectedProblem.title} problem. Click "Solve Problem" to see the full details.`,
+              id: lastViewedProblem.id,
+              title: lastViewedProblem.title,
+              slug: lastViewedProblem.id,
+              difficulty: lastViewedProblem.difficulty as "easy" | "medium" | "hard",
+              description: `This is the ${lastViewedProblem.title} problem. Click "Solve Problem" to see the full details.`,
               examples: [],
               constraints: [],
               tags: [],

@@ -25,6 +25,7 @@ const navLinks = [
 
 const moreLinks = [
   { path: "/doubt-arena", label: "Doubt Arena" },
+  { path: "/whiteboard", label: "Whiteboard" },
   { path: "/interview-prep", label: "Interview Prep" },
   { path: "/mock-interview", label: "Mock Interview" },
   { path: "/community", label: "Community" },

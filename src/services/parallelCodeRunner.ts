@@ -121,29 +121,65 @@ export class ParallelCodeRunner {
                             code.match(/(\w+)\s*=\s*(?:function|\()/);
         
         if (!functionMatch) {
-          throw new Error('No function found in code');
+          clearTimeout(timeout);
+          reject(new Error('No function found in code'));
+          return;
         }
 
         const functionName = functionMatch[1];
 
         // Create a safe execution context
-        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
         const wrappedCode = `
           ${code}
           return ${functionName};
         `;
 
-        const fn = new AsyncFunction(wrappedCode)();
+        // Use Function constructor instead of AsyncFunction for better compatibility
+        const fn = new Function(wrappedCode)();
+        
+        if (typeof fn !== 'function') {
+          clearTimeout(timeout);
+          reject(new Error('Could not extract function from code'));
+          return;
+        }
+
+        // Parse input if it's a JSON string
+        let parsedInput = input;
+        if (typeof input === 'string') {
+          try {
+            // Check if input contains multiple comma-separated values (like "[2,7,11,15], 9")
+            // Split by comma outside of brackets
+            const parts = input.split(/,\s*(?![^\[]*\])/);
+            
+            if (parts.length > 1) {
+              // Multiple parameters - parse each one
+              parsedInput = parts.map(part => {
+                try {
+                  return JSON.parse(part.trim());
+                } catch {
+                  return part.trim();
+                }
+              });
+            } else {
+              // Single parameter - try to parse as JSON
+              parsedInput = JSON.parse(input);
+            }
+          } catch (e) {
+            // If parsing fails, use as-is
+            parsedInput = input;
+          }
+        }
 
         // Handle array or single value inputs
         let result;
-        if (Array.isArray(input)) {
-          result = fn(...input);
-        } else if (typeof input === 'object' && input !== null) {
+        if (Array.isArray(parsedInput)) {
+          // Multiple parameters - spread them
+          result = fn(...parsedInput);
+        } else if (typeof parsedInput === 'object' && parsedInput !== null && 'params' in parsedInput) {
           // If input is an object with params array
-          result = fn(...(input.params || [input]));
+          result = fn(...parsedInput.params);
         } else {
-          result = fn(input);
+          result = fn(parsedInput);
         }
 
         // Handle promises
@@ -203,26 +239,33 @@ export class ParallelCodeRunner {
         // Extract function name
         const functionMatch = jsCode.match(/function\s+(\w+)/);
         if (!functionMatch) {
-          throw new Error('No function found in Python code');
+          clearTimeout(timeout);
+          reject(new Error('No function found in Python code'));
+          return;
         }
 
         const functionName = functionMatch[1];
 
         // Execute the transpiled JavaScript
-        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
         const wrappedCode = `
           ${jsCode}
           return ${functionName};
         `;
 
-        const fn = new AsyncFunction(wrappedCode)();
+        const fn = new Function(wrappedCode)();
+        
+        if (typeof fn !== 'function') {
+          clearTimeout(timeout);
+          reject(new Error('Could not extract function from Python code'));
+          return;
+        }
 
         // Handle inputs
         let result;
         if (Array.isArray(input)) {
           result = fn(...input);
-        } else if (typeof input === 'object' && input !== null) {
-          result = fn(...(input.params || [input]));
+        } else if (typeof input === 'object' && input !== null && 'params' in input) {
+          result = fn(...input.params);
         } else {
           result = fn(input);
         }
@@ -246,34 +289,45 @@ export class ParallelCodeRunner {
    * Compare actual output with expected output
    */
   private compareOutputs(actual: any, expected: any): boolean {
+    // Parse expected if it's a JSON string
+    let parsedExpected = expected;
+    if (typeof expected === 'string') {
+      try {
+        parsedExpected = JSON.parse(expected);
+      } catch (e) {
+        // If parsing fails, use as-is
+        parsedExpected = expected;
+      }
+    }
+
     // Handle null/undefined
-    if (actual === expected) return true;
-    if (actual == null || expected == null) return actual === expected;
+    if (actual === parsedExpected) return true;
+    if (actual == null || parsedExpected == null) return actual === parsedExpected;
 
     // Handle arrays
-    if (Array.isArray(actual) && Array.isArray(expected)) {
-      if (actual.length !== expected.length) return false;
-      return actual.every((val, idx) => this.compareOutputs(val, expected[idx]));
+    if (Array.isArray(actual) && Array.isArray(parsedExpected)) {
+      if (actual.length !== parsedExpected.length) return false;
+      return actual.every((val, idx) => this.compareOutputs(val, parsedExpected[idx]));
     }
 
     // Handle objects
-    if (typeof actual === 'object' && typeof expected === 'object') {
+    if (typeof actual === 'object' && typeof parsedExpected === 'object') {
       const actualKeys = Object.keys(actual).sort();
-      const expectedKeys = Object.keys(expected).sort();
+      const expectedKeys = Object.keys(parsedExpected).sort();
       
       if (actualKeys.length !== expectedKeys.length) return false;
       if (!actualKeys.every((key, idx) => key === expectedKeys[idx])) return false;
       
-      return actualKeys.every(key => this.compareOutputs(actual[key], expected[key]));
+      return actualKeys.every(key => this.compareOutputs(actual[key], parsedExpected[key]));
     }
 
     // Handle primitives with type coercion for numbers
-    if (typeof actual === 'number' && typeof expected === 'number') {
-      return Math.abs(actual - expected) < 1e-9;
+    if (typeof actual === 'number' && typeof parsedExpected === 'number') {
+      return Math.abs(actual - parsedExpected) < 1e-9;
     }
 
     // String comparison
-    return String(actual) === String(expected);
+    return String(actual) === String(parsedExpected);
   }
 
   /**

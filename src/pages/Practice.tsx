@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { DifficultyBadge } from "@/components/ui/DifficultyBadge";
@@ -7,6 +7,9 @@ import { Check, BookmarkPlus, Filter, Search, Bot, Code, ChevronLeft, ChevronRig
 import { Input } from "@/components/ui/input";
 import { Link } from "react-router-dom";
 import { useBabuaAI } from "@/hooks/useBabuaAI";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { onProblemSolved } from "@/lib/progressEvents";
 
 export default function Practice() {
   const [filter, setFilter] = useState<"all" | "easy" | "medium" | "hard">("all");
@@ -15,13 +18,70 @@ export default function Practice() {
   const [searchQuery, setSearchQuery] = useState("");
   const [companyFilter, setCompanyFilter] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
+  const [solvedProblems, setSolvedProblems] = useState<Set<string>>(new Set());
   const problemsPerPage = 20;
   const { sendMessage } = useBabuaAI();
+  const { user } = useAuth();
+
+  // Load solved problems from database
+  useEffect(() => {
+    loadSolvedProblems();
+  }, [user]);
+
+  // Listen for problem solved events
+  useEffect(() => {
+    const cleanup = onProblemSolved(() => {
+      console.log('Practice page: Reloading solved problems after solve event');
+      loadSolvedProblems();
+    });
+    return cleanup;
+  }, [user]);
+
+  async function loadSolvedProblems() {
+    if (!user) return;
+    
+    // Try user_problem_progress first
+    const { data, error } = await supabase
+      .from('user_problem_progress')
+      .select('problem_id, solved')
+      .eq('user_id', user.id)
+      .eq('solved', true);
+    
+    if (error) {
+      console.error('Error loading solved problems:', error);
+      
+      // Fallback: Try problem_submissions table
+      const { data: submissions, error: subError } = await supabase
+        .from('problem_submissions')
+        .select('problem_id')
+        .eq('user_id', user.id)
+        .eq('all_passed', true);
+      
+      if (!subError && submissions) {
+        const uniqueProblems = [...new Set(submissions.map(s => s.problem_id))];
+        setSolvedProblems(new Set(uniqueProblems));
+        console.log('Loaded solved problems from submissions:', uniqueProblems);
+      }
+    } else if (data) {
+      const problemIds = data.map(p => p.problem_id);
+      setSolvedProblems(new Set(problemIds));
+      console.log('Loaded solved problems from progress:', problemIds);
+      console.log('Mock problem IDs sample:', Object.values(detailedProblems).slice(0, 5).map(p => p.id));
+    }
+  }
 
   // Convert detailedProblems object to array and filter only DSA track
+  // Merge with solved status from database
   const problemsArray = useMemo(() => {
-    return Object.values(detailedProblems).filter((p) => p.track === "DSA");
-  }, []);
+    return Object.values(detailedProblems)
+      .filter((p) => p.track === "DSA")
+      .map(p => ({
+        ...p,
+        // Check if problem is solved by matching either the numeric ID or the slug
+        solved: solvedProblems.has(String(p.id)) || 
+                (p.slug && solvedProblems.has(p.slug))
+      }));
+  }, [solvedProblems]);
 
   // Get unique topics from DSA problems
   const allTopics = useMemo(() => {
@@ -61,7 +121,7 @@ export default function Practice() {
   const paginatedProblems = filteredProblems.slice(startIndex, endIndex);
 
   // Reset to page 1 when filters change
-  useMemo(() => {
+  useEffect(() => {
     setCurrentPage(1);
   }, [filter, topicFilter, searchQuery, companyFilter, showSolved]);
 

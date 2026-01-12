@@ -199,6 +199,204 @@ export async function deleteStudyPlan(planId: string): Promise<boolean> {
   }
 }
 
+// ============================================
+// STUDY PLAN PROGRESS TRACKING
+// ============================================
+
+/**
+ * Update study plan progress when a problem is solved
+ * This checks all active study plans and marks matching items as completed
+ */
+export async function updateStudyPlanProgress(
+  userId: string,
+  problemId: string,
+  problemSlug?: string
+): Promise<void> {
+  try {
+    // Get all active study plans for the user
+    const { data: activePlans } = await supabase
+      .from('study_plans')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('status', 'active');
+
+    if (!activePlans || activePlans.length === 0) {
+      console.log('No active study plans found');
+      return;
+    }
+
+    const planIds = activePlans.map(p => p.id);
+
+    // Build a flexible query to match by ID, slug, or title
+    // Get all problem items from active plans
+    const { data: allItems } = await supabase
+      .from('study_plan_items')
+      .select('*')
+      .in('plan_id', planIds)
+      .eq('item_type', 'problem')
+      .eq('is_completed', false);
+
+    if (!allItems || allItems.length === 0) {
+      console.log('No incomplete problem items in active plans');
+      return;
+    }
+
+    // Match items by comparing item_id with problemId, slug, or checking if title matches
+    const matchingItems = allItems.filter(item => {
+      if (!item.item_id) return false;
+      
+      const itemIdLower = item.item_id.toLowerCase().trim();
+      const problemIdStr = String(problemId).toLowerCase().trim();
+      const slugLower = problemSlug?.toLowerCase().trim();
+      
+      // Direct ID match
+      if (itemIdLower === problemIdStr) return true;
+      
+      // Slug match
+      if (slugLower && itemIdLower === slugLower) return true;
+      
+      // Title-to-slug conversion match (e.g., "Two Sum" -> "two-sum")
+      const titleSlug = item.title?.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+      if (titleSlug && (titleSlug === problemIdStr || titleSlug === slugLower)) return true;
+      
+      return false;
+    });
+
+    if (matchingItems.length === 0) {
+      console.log(`No matching items found for problem ${problemId} (slug: ${problemSlug})`);
+      return;
+    }
+
+    // Mark items as completed
+    const itemIds = matchingItems.map(item => item.id);
+    await supabase
+      .from('study_plan_items')
+      .update({
+        is_completed: true,
+        completed_at: new Date().toISOString()
+      })
+      .in('id', itemIds);
+
+    // Update each affected plan's progress
+    for (const item of matchingItems) {
+      await recalculatePlanProgress(item.plan_id);
+    }
+
+    console.log(`✓ Updated ${matchingItems.length} study plan items for problem ${problemId}`);
+  } catch (error) {
+    console.error('Error updating study plan progress:', error);
+  }
+}
+
+/**
+ * Recalculate and update a study plan's progress percentage
+ */
+async function recalculatePlanProgress(planId: string): Promise<void> {
+  try {
+    // Get all items and count completed
+    const { data: items } = await supabase
+      .from('study_plan_items')
+      .select('id, is_completed')
+      .eq('plan_id', planId);
+
+    if (!items || items.length === 0) return;
+
+    const totalItems = items.length;
+    const completedItems = items.filter(item => item.is_completed).length;
+    const progressPercentage = Math.round((completedItems / totalItems) * 100);
+
+    // Update the plan
+    await supabase
+      .from('study_plans')
+      .update({
+        total_items: totalItems,
+        completed_items: completedItems,
+        progress_percentage: progressPercentage,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', planId);
+
+  } catch (error) {
+    console.error('Error recalculating plan progress:', error);
+  }
+}
+
+/**
+ * Populate a study plan with problems based on its target topics
+ */
+export async function populateStudyPlanItems(
+  planId: string,
+  targetTopics: string[],
+  problemsPerDay: number = 3
+): Promise<boolean> {
+  try {
+    // Import problem data
+    const { detailedProblems } = await import('@/data/mockData');
+    
+    // Get problems that match the target topics
+    const allProblems = Object.values(detailedProblems).filter(p => p.track === 'DSA');
+    const matchingProblems = allProblems.filter(problem => 
+      problem.tags?.some(tag => 
+        targetTopics.some(topic => 
+          tag.toLowerCase().includes(topic.toLowerCase()) ||
+          topic.toLowerCase().includes(tag.toLowerCase())
+        )
+      )
+    );
+
+    if (matchingProblems.length === 0) {
+      console.warn('No matching problems found for topics:', targetTopics);
+      return false;
+    }
+
+    // Sort by difficulty (easy -> medium -> hard)
+    const difficultyOrder = { easy: 1, medium: 2, hard: 3 };
+    matchingProblems.sort((a, b) => 
+      (difficultyOrder[a.difficulty] || 2) - (difficultyOrder[b.difficulty] || 2)
+    );
+
+    // Create study plan items
+    const items = matchingProblems.map((problem, index) => ({
+      plan_id: planId,
+      item_type: 'problem',
+      item_id: problem.slug || String(problem.id),
+      title: problem.title,
+      description: problem.description?.substring(0, 200) || '',
+      day_number: Math.floor(index / problemsPerDay) + 1,
+      order_in_day: (index % problemsPerDay) + 1,
+      problem_difficulty: problem.difficulty,
+      problem_tags: problem.tags || [],
+      is_optional: false,
+      is_completed: false,
+      estimated_time_minutes: problem.difficulty === 'easy' ? 20 : problem.difficulty === 'medium' ? 35 : 50
+    }));
+
+    // Insert items
+    const { error } = await supabase
+      .from('study_plan_items')
+      .insert(items);
+
+    if (error) throw error;
+
+    // Update plan totals
+    await supabase
+      .from('study_plans')
+      .update({
+        total_items: items.length,
+        completed_items: 0,
+        progress_percentage: 0,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', planId);
+
+    console.log(`✓ Created ${items.length} items for study plan`);
+    return true;
+  } catch (error) {
+    console.error('Error populating study plan items:', error);
+    return false;
+  }
+}
+
 export async function startStudyPlan(planId: string): Promise<boolean> {
   try {
     const { error } = await supabase

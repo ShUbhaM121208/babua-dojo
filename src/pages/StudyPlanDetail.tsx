@@ -23,6 +23,7 @@ import {
   deleteStudyPlan, 
   startStudyPlan, 
   updateStudyPlan,
+  populateStudyPlanItems,
   type StudyPlan 
 } from "@/lib/studyPlanService";
 import { dsaTopics } from "@/data/mockData";
@@ -48,6 +49,27 @@ export default function StudyPlanDetail() {
     setLoading(true);
     const data = await getStudyPlan(id);
     setPlan(data);
+    
+    // If plan has 0 items, automatically populate it
+    if (data && (data.total_items === 0 || !data.total_items)) {
+      console.log('Plan has no items, populating with problems...');
+      const populated = await populateStudyPlanItems(
+        data.id,
+        data.target_topics || [],
+        data.problems_per_day || 3
+      );
+      
+      if (populated) {
+        // Reload the plan to get updated counts
+        const updatedData = await getStudyPlan(id);
+        setPlan(updatedData);
+        toast({
+          title: 'Plan populated!',
+          description: `Added ${updatedData?.total_items || 0} problems to your study plan`,
+        });
+      }
+    }
+    
     setLoading(false);
   };
 

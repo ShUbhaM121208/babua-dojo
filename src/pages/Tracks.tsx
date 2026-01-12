@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useState } from "react";
 import { getUserTrackProgress } from "@/lib/userDataService";
 import type { UserTrackProgress } from "@/lib/userDataService";
+import { onProblemSolved } from "@/lib/progressEvents";
 
 export default function Tracks() {
   const { user } = useAuth();
@@ -18,6 +19,15 @@ export default function Tracks() {
     } else {
       setLoading(false);
     }
+  }, [user]);
+
+  // Listen for problem solved events
+  useEffect(() => {
+    const cleanup = onProblemSolved(() => {
+      console.log('Tracks page: Reloading progress after solve event');
+      loadTrackProgress();
+    });
+    return cleanup;
   }, [user]);
 
   const loadTrackProgress = async () => {

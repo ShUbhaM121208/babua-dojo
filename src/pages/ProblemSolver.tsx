@@ -23,6 +23,8 @@ import type { Problem, TestResult } from "@/types";
 import { useBabuaAI } from "@/hooks/useBabuaAI";
 import { useAuth } from "@/contexts/AuthContext";
 import { markProblemSolved, getProblemProgress } from "@/lib/userDataService";
+import { updateStudyPlanProgress } from "@/lib/studyPlanService";
+import { emitProblemSolved } from "@/lib/progressEvents";
 import { getUserStats, unlockAchievement, getUnlockedAchievements } from "@/lib/userStatsService";
 import { achievements, calculateXPForProblem, checkAchievementUnlock } from "@/data/achievements";
 import { useToast } from "@/hooks/use-toast";
@@ -479,6 +481,21 @@ export default function ProblemSolver() {
           
           if (result) {
             setIsSolved(true);
+            
+            // Update study plan progress if problem is part of any active plan
+            await updateStudyPlanProgress(
+              user.id,
+              String(problem.id),
+              problem.slug
+            );
+            
+            // Emit event to update all pages
+            emitProblemSolved({
+              problemId: String(problem.id),
+              problemSlug: problem.slug,
+              trackSlug: trackSlug,
+              difficulty: problem.difficulty
+            });
             
             // Calculate XP earned
             const xpEarned = calculateXPForProblem(

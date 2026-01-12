@@ -29,6 +29,7 @@ const Support = lazy(() => import("./pages/Support"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const ProblemSolver = lazy(() => import("./pages/ProblemSolver"));
 const DoubtArena = lazy(() => import("./pages/DoubtArena"));
+const Whiteboard = lazy(() => import("./pages/Whiteboard"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Analytics = lazy(() => import("./pages/Analytics"));
@@ -122,6 +123,16 @@ const App = () => (
                     <ProtectedRoute>
                       <Suspense fallback={<DashboardSkeleton />}>
                         <DoubtArena />
+                      </Suspense>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/whiteboard"
+                  element={
+                    <ProtectedRoute>
+                      <Suspense fallback={<DashboardSkeleton />}>
+                        <Whiteboard />
                       </Suspense>
                     </ProtectedRoute>
                   }

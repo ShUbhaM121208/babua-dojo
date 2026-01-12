@@ -30,6 +30,7 @@ import { useBabuaAI } from "@/hooks/useBabuaAI";
 import { useAuth } from "@/contexts/AuthContext";
 import { getUserProblemProgress, markProblemSolved } from "@/lib/userDataService";
 import { useToast } from "@/hooks/use-toast";
+import { onProblemSolved } from "@/lib/progressEvents";
 
 export default function TrackDetail() {
   const { slug } = useParams();
@@ -45,16 +46,43 @@ export default function TrackDetail() {
     }
   }, [user, slug]);
 
+  // Listen for problem solved events
+  useEffect(() => {
+    const cleanup = onProblemSolved((data) => {
+      if (data.trackSlug === slug) {
+        console.log('TrackDetail: Reloading progress after solve event');
+        loadUserProgress();
+      }
+    });
+    return cleanup;
+  }, [user, slug]);
+
   const loadUserProgress = async () => {
     if (!user || !slug) return;
     
     const progress = await getUserProblemProgress(user.id);
-    const solved = new Set(
+    const solvedIds = new Set(
       progress
         .filter(p => p.solved && p.track_slug === slug)
         .map(p => p.problem_id)
     );
-    setSolvedProblems(solved);
+    
+    // Match problems by both ID and slug
+    const allProblems = Object.values(detailedProblems);
+    const matchedProblems = new Set<string>();
+    
+    solvedIds.forEach(solvedId => {
+      const problem = allProblems.find(p => 
+        String(p.id) === String(solvedId) || 
+        p.slug === solvedId
+      );
+      if (problem) {
+        matchedProblems.add(String(problem.id));
+      }
+    });
+    
+    setSolvedProblems(matchedProblems);
+    console.log('Loaded progress:', matchedProblems.size, 'problems solved');
   };
 
   const handleMarkComplete = async () => {
@@ -72,7 +100,9 @@ export default function TrackDetail() {
       );
       
       if (result) {
-        setSolvedProblems(prev => new Set(prev).add(selectedProblem.id));
+        setSolvedProblems(prev => new Set(prev).add(String(selectedProblem.id)));
+        // Reload progress to ensure sync
+        await loadUserProgress();
         toast({
           title: "✅ Problem Marked as Complete!",
           description: `Great job on ${selectedProblem.title}!`,

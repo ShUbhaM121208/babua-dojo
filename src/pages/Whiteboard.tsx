@@ -76,7 +76,12 @@ export default function Whiteboard() {
 
   // Subscribe to room updates
   useEffect(() => {
-    if (!room || !user) return;
+    if (!room || !room.id || !user) {
+      console.log('Skipping room subscription - missing room.id or user', { room, user });
+      return;
+    }
+
+    console.log('Setting up room subscription for room:', room.id);
 
     const loadParticipants = async () => {
       try {
@@ -125,7 +130,7 @@ export default function Whiteboard() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (room && user) {
+      if (room && room.id && user) {
         leaveWhiteboardRoom(room.id, user.id);
       }
     };
@@ -243,10 +248,18 @@ export default function Whiteboard() {
     }
   };
 
-  const handleDraw = useCallback(async (event: DrawingEvent) => {
-    if (!room || !user) return;
+  const handleDraw = useCallback(async (eventData: Omit<DrawingEvent, 'id' | 'created_at' | 'sequence_number' | 'room_id' | 'user_id'>) => {
+    if (!room || !room.id || !user) return;
 
     try {
+      // Create full drawing event
+      const event: DrawingEvent = {
+        room_id: room.id,
+        user_id: user.id,
+        event_type: eventData.event_type,
+        event_data: eventData.event_data,
+      };
+
       // Save to database
       await saveDrawingEvent(event);
       
@@ -368,7 +381,20 @@ export default function Whiteboard() {
     );
   }
 
-  // Whiteboard View
+  // Whiteboard View - Guard against null room
+  if (!room || !room.id || !user) {
+    console.log('Waiting for room/user...', { room, user });
+    return (
+      <Layout>
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center">
+          <div className="text-white text-center">
+            <p className="text-xl">Loading room...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <div className="h-screen flex flex-col bg-gray-900">
@@ -378,10 +404,10 @@ export default function Whiteboard() {
             <div className="flex items-center gap-4">
               <h1 className="text-xl font-bold text-white flex items-center gap-2">
                 {isSolver && <Crown className="h-5 w-5 text-yellow-500" />}
-                {room?.title}
+                {room.title}
               </h1>
               <span className="px-3 py-1 bg-purple-600 rounded-full text-sm font-mono">
-                {room?.room_code}
+                {room.room_code}
               </span>
             </div>
 
@@ -493,27 +519,25 @@ export default function Whiteboard() {
             {/* Canvas */}
             <div className="flex-1 bg-white">
               <WhiteboardCanvas
-                tool={tool}
-                color={color}
+                currentTool={tool}
+                currentColor={color}
                 strokeWidth={strokeWidth}
-                onDraw={handleDraw}
+                onDrawingEvent={handleDraw}
                 remoteEvents={remoteEvents}
-                roomId={room?.id || ''}
-                userId={user?.id || ''}
+                roomId={room.id}
+                canDraw={true}
               />
             </div>
           </div>
 
           {/* Right Sidebar */}
-          {room && (
-            <RoomControls
-              room={room}
-              participants={participants}
-              isSolver={isSolver}
-              onLeave={handleLeaveRoom}
-              onClose={handleCloseRoom}
-            />
-          )}
+          <RoomControls
+            room={room}
+            participants={participants}
+            currentUserId={user.id}
+            onLeaveRoom={handleLeaveRoom}
+            onCloseRoom={handleCloseRoom}
+          />
         </div>
       </div>
     </Layout>

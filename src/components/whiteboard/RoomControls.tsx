@@ -22,8 +22,10 @@ export default function RoomControls({
   const { toast } = useToast();
   const [copiedCode, setCopiedCode] = useState(false);
 
+  // Ensure participants is always an array
+  const participantList = Array.isArray(participants) ? participants : [];
   const isSolver = room.solver_id === currentUserId;
-  const currentParticipant = participants.find(p => p.user_id === currentUserId);
+  const currentParticipant = participantList.find(p => p.user_id === currentUserId);
 
   const copyRoomCode = async () => {
     try {
@@ -104,12 +106,12 @@ export default function RoomControls({
         <div className="flex items-center gap-2 mb-3">
           <Users className="h-4 w-4 text-muted-foreground" />
           <h3 className="font-semibold text-sm">
-            Participants ({participants.length}/{room.max_participants})
+            Participants ({participantList.length}/{room.max_participants})
           </h3>
         </div>
 
         <div className="space-y-2">
-          {participants.map((participant) => (
+          {participantList.map((participant) => (
             <div
               key={participant.id}
               className={`flex items-center gap-2 p-2 rounded-lg ${
@@ -139,7 +141,7 @@ export default function RoomControls({
           ))}
         </div>
 
-        {participants.length === 0 && (
+        {participantList.length === 0 && (
           <div className="text-center text-muted-foreground text-sm py-8">
             Waiting for participants...
           </div>

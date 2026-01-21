@@ -32,6 +32,7 @@ export default function WhiteboardCanvas({
   const [startPoint, setStartPoint] = useState<Point | null>(null);
   const [history, setHistory] = useState<ImageData[]>([]);
   const [historyStep, setHistoryStep] = useState(-1);
+  const processedEventsRef = useRef<Set<string>>(new Set());
 
   // Initialize canvas
   useEffect(() => {
@@ -70,18 +71,21 @@ export default function WhiteboardCanvas({
     if (!ctx) return;
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const newHistory = history.slice(0, historyStep + 1);
-    newHistory.push(imageData);
     
-    // Limit history to 50 steps
-    if (newHistory.length > 50) {
-      newHistory.shift();
-    } else {
-      setHistoryStep(historyStep + 1);
-    }
+    setHistory(prev => {
+      const newHistory = prev.slice(0, historyStep + 1);
+      newHistory.push(imageData);
+      
+      // Limit history to 50 steps
+      if (newHistory.length > 50) {
+        newHistory.shift();
+        return newHistory;
+      }
+      return newHistory;
+    });
     
-    setHistory(newHistory);
-  }, [history, historyStep]);
+    setHistoryStep(prev => prev + 1);
+  }, [historyStep]); // Only depend on historyStep, not history
 
   // Undo
   const undo = useCallback(() => {
@@ -263,6 +267,14 @@ export default function WhiteboardCanvas({
     if (!ctx) return;
 
     const latestEvent = remoteEvents[remoteEvents.length - 1];
+    if (!latestEvent) return;
+    
+    // Skip if already processed
+    const eventId = latestEvent.id || `${latestEvent.created_at}-${latestEvent.sequence_number}`;
+    if (processedEventsRef.current.has(eventId)) return;
+    
+    processedEventsRef.current.add(eventId);
+    
     const { event_type, event_data } = latestEvent;
 
     switch (event_type) {
@@ -315,9 +327,7 @@ export default function WhiteboardCanvas({
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         break;
     }
-
-    saveToHistory();
-  }, [remoteEvents, saveToHistory]);
+  }, [remoteEvents]); // Removed saveToHistory from dependencies
 
   // Expose undo and clear functions
   useEffect(() => {
